@@ -13,6 +13,8 @@ Zotero.OPDS = {
   },
 
   log: function(msg, e) {
+    if (typeof msg != 'string') { msg = JSON.stringify(msg); }
+
     msg = '[opds] ' + msg;
     if (e) {
       msg += "\nan error occurred: ";
@@ -44,6 +46,7 @@ Zotero.OPDS = {
   },
 
   init: function () {
+    /*
     Zotero.OPDS.log('Initializing...');
     Zotero.OPDS.xslt.async = false;
     var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');
@@ -56,6 +59,7 @@ Zotero.OPDS = {
     }
 
     Zotero.OPDS.log('Endpoints...');
+    */
 
     for (var endpoint of Object.keys(Zotero.OPDS.endpoints)) {
       var url = "/opds/" + endpoint;
@@ -66,34 +70,61 @@ Zotero.OPDS = {
     Zotero.OPDS.log('Done!');
   },
 
-  indent: function(doc) {
-    var xml = Zotero.OPDS.serializer.serializeToString(doc);
-    var formatted = '';
-    var reg = /(>)(<)(\/*)/g;
-    xml = xml.replace(reg, '$1\r\n$2$3');
-    var pad = 0;
-    xml.split('\r\n').forEach(function(node) {
-      var indent = 0;
-      if (node.match( /.+<\/\w[^>]*>$/ )) {
-          indent = 0;
-      } else if (node.match( /^<\/\w/ )) {
-          if (pad != 0) { pad -= 1; }
-      } else if (node.match( /^<\w[^>]*[^\/]>.*$/ )) {
-        indent = 1;
-      } else {
-        indent = 0;
+
+  Feed: function(id, name) {
+    this.id = id;
+    this.name = name;
+
+    this.namespace = {
+      dc: 'http://purl.org/dc/terms/',
+      opds: 'http://opds-spec.org/2010/catalog',
+      atom: 'http://www.w3.org/2005/Atom'
+    };
+
+    this.newnode = function(name, text, namespace) {
+      var node = this.doc.createElementNS(namespace || this.namespace.atom, name);
+      if (text) {
+        node.appendChild(Zotero.OPDS.document.createTextNode(text));
       }
- 
-      var padding = '';
-      for (var i = 0; i < pad; i++) {
-        padding += '  ';
-      }
- 
-      formatted += padding + node + '\r\n';
-      pad += indent;
-    });
- 
-    return formatted;
+      (this._root || this.doc.documentElement).appendChild(node);
+      return node;
+    };
+
+    this.root = function(node) {
+      this._root = node;
+      return node;
+    }
+
+    this.doc = Zotero.OPDS.document.implementation.createDocument(this.namespace.atom, 'feed', null);
+    this.doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:dc', this.namespace.dc);
+    this.doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:opds', this.namespace.opds);
+
+    this.newnode('title', this.name || 'Zotero library');
+    this.newnode('subtitle', 'Your bibliography, served by Zotero-OPDS ' + Zotero.OPDS.release);
+    this.root(this.newnode('author'));
+      this.newnode('name', 'zotero');
+      this.newnode('uri', 'https://github.com/AllThatIsTheCase/zotero-opds');
+    this.root();
+
+    this.newnode('id', 'urn:zotero-opds:' + (this.id || 'main'));
+    //var link = this.newnode('link');
+    //  link.setAttribute('href', '/opds');
+    //  link.setAttribute('type', 'application/atom+xml');
+    //  link.setAttribute('rel', 'start');
+
+    this.entry = function(title, id, url) {
+      this.root(this.newnode('entry'));
+        this.newnode('title', title);
+        this.newnode('id', 'zotero-opds:' + id);
+        var link = this.newnode('link');
+          link.setAttribute('href', url);
+          link.setAttribute('type', 'application/atom+xml');
+      this.root();
+    }
+
+    this.serialize = function() {
+      return Zotero.OPDS.serializer.serializeToString(this.doc);
+    }
   },
 
   endpoints: {
@@ -101,48 +132,71 @@ Zotero.OPDS = {
       supportedMethods: ['GET'],
 
       init: function(url, data, sendResponseCallback) {
+        var doc = new Zotero.OPDS.Feed();
 
-        var dc = 'http://purl.org/dc/terms/';
-        var opds = 'http://opds-spec.org/2010/catalog';
-        var atom = 'http://www.w3.org/2005/Atom';
-
-        var doc = Zotero.OPDS.document.implementation.createDocument(atom, 'feed', null);
-        doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:dc', dc);
-        doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:opds', opds);
-
-        var newnode = function(container, name, text, namespace) {
-          var node = doc.createElementNS(namespace || atom, name);
-          if (text) {
-            node.appendChild(Zotero.OPDS.document.createTextNode(text));
-          }
-          container.appendChild(node);
-          return node
-        }
-
-        newnode(doc.documentElement, 'title', 'Zotero library');
-        newnode(doc.documentElement, 'subtitle', 'Your bibliography, served by Zotero-OPDS ' + Zotero.OPDS.release);
-        var author = newnode(doc.documentElement, 'author');
-          newnode(author, 'name', 'zotero');
-          newnode(author, 'uri', 'https://github.com/AllThatIsTheCase/zotero-opds');
-        newnode(doc.documentElement, 'id', 'urn:zotero-opds:main');
-        newnode(doc.documentElement, 'updated', '2014-06-18T08:33:09Z');
-        var link = newnode(doc.documentElement, 'link');
-          link.setAttribute('href', '/opds/index');
-          link.setAttribute('type', 'application/atom+xml');
-          link.setAttribute('rel', 'start');
-
-        ['Date', 'Title', 'Author', 'Publisher', 'Tags'].forEach(function(sortby) {
-          var entry = newnode(doc.documentElement, 'entry');
-            newnode(entry, 'title', 'By ' + sortby);
-            newnode(entry, 'id', 'zotero-opds:by-' + sortby.toLowerCase());
-            newnode(entry, 'updated', '2014-06-18T08:33:09Z');
-            newnode(entry, 'content', 'Books sorted by ' + sortby.toLowerCase());
-            var link = newnode(entry, 'link');
-              link.setAttribute('href', '/opds/by-' + sortby.toLowerCase());
-              link.setAttribute('type', 'application/atom+xml');
+        Zotero.getCollections().forEach(function(collection) {
+          doc.entry(collection.name, collection.key, '/opds/collection?id=0:' + collection.key);
         });
 
-        sendResponseCallback(200, 'application/atom+xml', Zotero.OPDS.indent(doc));
+        // don't forget to add saved searches
+
+        Zotero.Groups.getAll().forEach(function(group) {
+          doc.entry(group.name, group.key, '/opds/group?id=' + group.id);
+        });
+
+        sendResponseCallback(200, 'application/atom+xml', doc.serialize());
+      }
+    },
+
+    group: {
+      supportedMethods: ['GET'],
+
+      init: function(url, data, sendResponseCallback) {
+        var doc = new Zotero.OPDS.Feed();
+
+        var group = url.query.id;
+        var library = Zotero.Groups.getLibraryIDFromGroupID(library);
+        var root = Zotero.Groups.getByLibraryID(library);
+        collections = root.getCollections();
+        root = new Zotero.ItemGroup('group', root);
+
+        (collections || []).forEach(function(collection) {
+          doc.entry(collection.name, collection.key, '/opds/collection?id=' + group + ':' + collection.key);
+        });
+
+        (root.getItems() || []).forEach(function(item) {
+          doc.entry(item.getDisplayTitle(true), item.key, '/opds/item?id=' + group + ':' + item.key);
+        });
+
+        sendResponseCallback(200, 'application/atom+xml', doc.serialize());
+      }
+    },
+
+    collection: {
+      supportedMethods: ['GET'],
+
+      init: function(url, data, sendResponseCallback) {
+        var doc = new Zotero.OPDS.Feed();
+
+        var root = url.query.id.split(':');
+        if (root.length != 2) { return sendResponseCallback(500, 'text/plain', 'Unexpected OPDS root ' + url.query.id); }
+
+        var group = root.shift();
+        var library = (group == '0' ? null : Zotero.Groups.getLibraryIDFromGroupID(group));
+        root = root.shift();
+        root =  Zotero.Collections.getByLibraryAndKey(library, root);
+        collections = root.getChildCollections();
+        root = new Zotero.ItemGroup('collection', root);
+
+        (collections || []).forEach(function(collection) {
+          doc.entry(collection.name, collection.key, '/opds/collection?id=' + group + ':' + collection.key);
+        });
+
+        (root.getItems() || []).forEach(function(item) {
+          doc.entry(item.getDisplayTitle(true), item.key, '/opds/item?id=' + group + ':' + item.key);
+        });
+
+        sendResponseCallback(200, 'application/atom+xml', doc.serialize());
       }
     }
   }
