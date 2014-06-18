@@ -112,6 +112,39 @@ Zotero.OPDS = {
     //  link.setAttribute('type', 'application/atom+xml');
     //  link.setAttribute('rel', 'start');
 
+    this.item = function(group, item) {
+      this.root(this.newnode('entry'));
+        this.newnode('title', item.getDisplayTitle(true));
+        this.newnode('id', 'zotero-opds:' + item.key);
+
+        var abstr = item.getField('abstract');
+        if (abstr && abstr.length != 0) {
+          this.newnode('summary', abstr);
+        }
+
+        var attachments = [];
+        if (item.isAttachment()) {
+          attachments = [item];
+        } else {
+          attachments = item.getAttachments();
+        }
+
+        var self = this;
+        attachments.forEach(function(a) {
+          var link = self.newnode('link');
+            link.setAttribute('rel', 'http://opds-spec.org/acquisition/open-access');
+            link.setAttribute('href', '/opds/attachment?id=' + group + ':' + a.key);
+            link.setAttribute('type', a.attachmentMIMEType);
+        });
+
+        /*
+        var link = this.newnode('link');
+          link.setAttribute('href', '/opds/item?id=' + group + ':' + item.key);
+          link.setAttribute('type', 'application/atom+xml');
+        */
+      this.root();
+    }
+
     this.entry = function(title, id, url) {
       this.root(this.newnode('entry'));
         this.newnode('title', title);
@@ -148,6 +181,22 @@ Zotero.OPDS = {
       }
     },
 
+    attachment: {
+      supportedMethods: ['GET'],
+
+      init: function(url, data, sendResponseCallback) {
+        var root = url.query.id.split(':');
+        if (root.length != 2) { return sendResponseCallback(500, 'text/plain', 'Unexpected OPDS root ' + url.query.id); }
+
+        var group = root.shift();
+        var library = (group == '0' ? null : Zotero.Groups.getLibraryIDFromGroupID(group));
+        root = root.shift();
+
+        var item = Zotero.Items.getByLibraryAndKey(library, root);
+        sendResponseCallback(200, item.attachmentMIMEType, Zotero.File.getBinaryContents(item.attachmentPath));
+      }
+    },
+
     group: {
       supportedMethods: ['GET'],
 
@@ -165,7 +214,7 @@ Zotero.OPDS = {
         });
 
         (root.getItems() || []).forEach(function(item) {
-          doc.entry(item.getDisplayTitle(true), item.key, '/opds/item?id=' + group + ':' + item.key);
+          doc.item(group, item);
         });
 
         sendResponseCallback(200, 'application/atom+xml', doc.serialize());
@@ -193,7 +242,7 @@ Zotero.OPDS = {
         });
 
         (root.getItems() || []).forEach(function(item) {
-          doc.entry(item.getDisplayTitle(true), item.key, '/opds/item?id=' + group + ':' + item.key);
+          doc.item(group, item);
         });
 
         sendResponseCallback(200, 'application/atom+xml', doc.serialize());
