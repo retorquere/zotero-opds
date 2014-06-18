@@ -1,0 +1,26 @@
+<!ENTITY zotero.opds.citekey_column	"Cite Key">
+<!ENTITY zotero.opds.show-collection-key "BibLaTeX url">
+<!ENTITY zotero.opds.set-citekey "Generate BibTex key">
+<!ENTITY zotero.opds.preferences.prefpane.opds "OPDS Server">
+<!ENTITY zotero.opds.restart-required "Restart Required">
+<!ENTITY zotero.opds.preferences.recursive "Export collections recursively">
+<!ENTITY zotero.opds.cite.command "Citation command">
+<!ENTITY zotero.opds.skipFields "Fields to omit from export (comma-separated)">
+<!ENTITY zotero.opds.cite.format "Citation key format">
+<!ENTITY zotero.opds.attachment.format "Attachment export filename format">
+<!ENTITY zotero.opds.dragons "Caution -- here be dragons">
+<!ENTITY zotero.opds.server.enabled "Enable export by HTTP">
+<!ENTITY zotero.opds.server.disabled "Export by HTTP disabled">
+<!ENTITY zotero.opds.server.address "Bibliography export at ">
+<!ENTITY zotero.opds.server.warning "BibTeX http export uses the general Zotero HTTP facility; please note that disabling this will disable ALL http facilities in zotero -- including the non-Firefox plugins">
+<!ENTITY zotero.opds.recursive.warning "Enabling recursive export also causes Zotero to display collection content recursively">
+<!ENTITY zotero.opds.unicode "Export as Unicode">
+<!ENTITY zotero.opds.unicode.default "Default (Unicode for BibLaTeX, ASCII for BibTex)">
+<!ENTITY zotero.opds.unicode.always "Always">
+<!ENTITY zotero.opds.unicode.never "Never">
+<!ENTITY zotero.opds.fancyURLs "Clickable URLs">
+<!ENTITY zotero.opds.fancyURLs.warning "Wraps urls in a \href field -- not supported by all bibliography processors!">
+<!ENTITY zotero.opds.format-unique-warning "Caution: the default guarantees that each attachment has a unique filename. If you change the default, make sure the resulting filenames remain unique!">
+<!ENTITY zotero.opds.format.reset "Reset attachment formatter">
+<!ENTITY zotero.opds.brace-all "Wrap all fields in double-braces">
+<!ENTITY zotero.opds.useprefix "Add 'useprefix' option to BibLaTeX export">

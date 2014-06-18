@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://zotero-opds/skin/overlay.css" type="text/css"?>
+<!DOCTYPE window SYSTEM "chrome://zotero-opds/locale/zotero-opds.dtd">
+
+<overlay id="zotero-opds-overlay"
+	xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+	
+	<stringbundleset id="stringbundleset">
+		<stringbundle id="zotero-opds-strings"
+			src="chrome://zotero-opds/locale/zotero-opds.properties"/>
+	</stringbundleset>
+	
+	<!-- menupopup id="zotero-tb-actions-popup">
+		<!- Make sure the menu separator for utilities is visible ->
+		<menuseparator id="zotero-tb-actions-plugins-separator" hidden="false"/>
+		<menuitem insertbefore="zotero-tb-actions-separator" label="&zotero-opds.name;"
+			oncommand="Zotero.Link local files.insertLinkLocalFiles()"/>
+	</menupopup -->
+
+  <menupopup id="zotero-collectionmenu">
+    <menuitem label="&zotero.opds.show-collection-key;" oncommand="alert(serverURL(ZoteroPane_Local.collectionsView, '.biblatex') || '&zotero.opds.server.disabled;')"/>
+	</menupopup>
+
+  <menupopup id="zotero-itemmenu">
+    <menuitem id="id-zotero-opds-set-citekey" label="&zotero.opds.set-citekey;"
+              oncommand="Zotero.OPDS.setCiteKeys();"/>
+	</menupopup>
+
+  <!-- treecols id="zotero-items-columns-header">
+    <treecol insertafter="zotero-items-column-extra" id="zotero-items-column-citekey" hidden="true" label="&zotero.opds.citekey_column;" flex="1" zotero-persist="width ordinal hidden sortActive sortDirection"/>
+  </treecols -->
+	
+	<!-- Include the main extension logic -->
+	<script src="chrome://zotero/content/include.js"/>
+	<script src="chrome://zotero-opds/content/include.js" type="application/javascript;version=1.8"/>
+	<script src="chrome://zotero-opds/content/preferences.js" type="application/javascript;version=1.8"/>
+</overlay>

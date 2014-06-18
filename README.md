@@ -1,2 +1,2 @@
-zotero-opds
-===========
+# Zotero: OPDS server
+

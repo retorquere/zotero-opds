@@ -1,0 +1,7 @@
+content   zotero-opds          chrome/content/zotero-opds/
+locale    zotero-opds  en-US   chrome/locale/en-US/zotero-opds/
+skin      zotero-opds  default chrome/skin/default/zotero-opds/
+resource  zotero-opds          resource/
+
+overlay	chrome://zotero/content/zoteroPane.xul	chrome://zotero-opds/content/overlay.xul
+overlay	chrome://zotero/content/preferences/preferences.xul	chrome://zotero-opds/content/preferences.xul
