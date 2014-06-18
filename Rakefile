@@ -90,7 +90,6 @@ file 'README.md' => ['install.rdf', 'Rakefile'] do |t|
   readme.gsub!(/\(http[^)]+\.xpi\)/, "(https://github.com/ZotPlus/zotero-#{EXTENSION}/raw/master/#{XPI})")
   readme.gsub!(/\*\*[0-9]+\.[0-9]+\.[0-9]+\*\*/, "**#{RELEASE}**")
   readme.gsub!(/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}/, DateTime.now.strftime('%Y-%m-%d %H:%M'))
-  home = readme if patch =~ /Home\.md$/
   File.open(t.name, 'w'){|f| f.write(readme) }
 end
 
