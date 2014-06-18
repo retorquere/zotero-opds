@@ -1,18 +1,16 @@
 Components.utils.import("resource://gre/modules/Services.jsm");
 
 Zotero.OPDS = {
+  document: Components.classes["@mozilla.org/xul/xul-document;1"].getService(Components.interfaces.nsIDOMDocument),
+  serializer: Components.classes["@mozilla.org/xmlextras/xmlserializer;1"].createInstance(Components.interfaces.nsIDOMSerializer),
+  parser: Components.classes["@mozilla.org/xmlextras/domparser;1"].createInstance(Components.interfaces.nsIDOMParser),
+  xslt: Components.classes["@mozilla.org/document-transformer;1?type=xslt"].createInstance(Components.interfaces.nsIXSLTProcessor),
+
   prefs: {
     zotero: Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero."),
-    bbt:    Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero.translators.opds."),
-    dflt:   Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getDefaultBranch("extensions.zotero.translators.opds."),
-
-    legacy: Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero-opds.")
+    opds:   Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero.opds."),
+    dflt:   Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getDefaultBranch("extensions.zotero.opds.")
   },
-
-  embeddedKeyRE: /bibtex:\s*([^\s\r\n]+)/,
-  translators: {},
-  threadManager: Components.classes["@mozilla.org/thread-manager;1"].getService(),
-  windowMediator: Components.classes["@mozilla.org/appshell/window-mediator;1"].getService(Components.interfaces.nsIWindowMediator),
 
   log: function(msg, e) {
     msg = '[opds] ' + msg;
@@ -46,19 +44,18 @@ Zotero.OPDS = {
   },
 
   init: function () {
-    // migrate options
-    Zotero.OPDS.prefs.legacy.clearUserPref('BibLaTex.ASCII');
-    Zotero.OPDS.prefs.legacy.clearUserPref('citekeyformat');
-    Zotero.OPDS.prefs.legacy.clearUserPref('getCollections');
-    for (var option of ['citeCommand', 'citeKeyFormat']) {
-      try {
-        var value = Zotero.OPDS.prefs.legacy.getCharPref(option);
-        if (value) {
-          Zotero.OPDS.prefs.bbt.setCharPref(option, value);
-          Zotero.OPDS.prefs.legacy.clearUserPref(option);
-        }
-      } catch (err) {}
+    Zotero.OPDS.log('Initializing...');
+    Zotero.OPDS.xslt.async = false;
+    var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');
+    Zotero.OPDS.log('stylesheet: ' + stylesheet);
+    stylesheet = Zotero.OPDS.parser.parseFromString(stylesheet, 'text/xml');
+    try {
+      Zotero.OPDS.xslt.importStylesheet(stylesheet.documentElement);
+    } catch (e) {
+      Zotero.OPDS.log('could not load stylesheet: ' + e);
     }
+
+    Zotero.OPDS.log('Endpoints...');
 
     for (var endpoint of Object.keys(Zotero.OPDS.endpoints)) {
       var url = "/opds/" + endpoint;
@@ -66,307 +63,88 @@ Zotero.OPDS = {
       var ep = Zotero.Server.Endpoints[url] = function() {};
       ep.prototype = Zotero.OPDS.endpoints[endpoint];
     }
-
-    Zotero.OPDS.config = {}
-    for (var option of ['citeCommand', 'citeKeyFormat', 'fancyURLs', 'unicode']) {
-      var value = null;
-      try {
-        value = Zotero.OPDS.prefs.bbt.getPref(option);
-      } catch(err) {}
-      Zotero.OPDS.config[option] = value;
-    }
-
-    Zotero.Translators.init();
+    Zotero.OPDS.log('Done!');
   },
 
-  displayOptions: function(url) {
-    var params = {};
-    var hasParams = false;
-
-    ['exportCharset', 'exportNotes?', 'useJournalAbbreviation?'].forEach(function(key) {
-      try {
-        var isBool = key.match(/[?]$/);
-        if (isBool) { key = key.replace(isBool[0], ''); }
-        params[key] = url.query[key];
-        if (isBool) { params[key] = (['y', 'yes', 'true'].indexOf(params[key].toLowerCase()) >= 0); }
-        hasParams = true;
-      } catch (e) {}
+  indent: function(doc) {
+    var xml = Zotero.OPDS.serializer.serializeToString(doc);
+    var formatted = '';
+    var reg = /(>)(<)(\/*)/g;
+    xml = xml.replace(reg, '$1\r\n$2$3');
+    var pad = 0;
+    xml.split('\r\n').forEach(function(node) {
+      var indent = 0;
+      if (node.match( /.+<\/\w[^>]*>$/ )) {
+          indent = 0;
+      } else if (node.match( /^<\/\w/ )) {
+          if (pad != 0) { pad -= 1; }
+      } else if (node.match( /^<\w[^>]*[^\/]>.*$/ )) {
+        indent = 1;
+      } else {
+        indent = 0;
+      }
+ 
+      var padding = '';
+      for (var i = 0; i < pad; i++) {
+        padding += '  ';
+      }
+ 
+      formatted += padding + node + '\r\n';
+      pad += indent;
     });
-    Zotero.OPDS.log('displayOptions = ' + JSON.stringify(params));
-    return (hasParams ? params : null);
+ 
+    return formatted;
   },
 
   endpoints: {
-    collection: {
+    index: {
       supportedMethods: ['GET'],
 
       init: function(url, data, sendResponseCallback) {
-        var collection;
 
-        try {
-          collection = url.query[''];
-        } catch (err) {
-          collection = null;
-        }
+        var dc = 'http://purl.org/dc/terms/';
+        var opds = 'http://opds-spec.org/2010/catalog';
+        var atom = 'http://www.w3.org/2005/Atom';
 
-        if (!collection) {
-          sendResponseCallback(501, "text/plain", "Could not export bibliography: no path");
-          return;
-        }
+        var doc = Zotero.OPDS.document.implementation.createDocument(atom, 'feed', null);
+        doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:dc', dc);
+        doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:opds', opds);
 
-        try {
-          var path = collection.split('.');
-
-          if (path.length == 1) {
-            sendResponseCallback(404, "text/plain", "Could not export bibliography '" + collection + "': no format specified");
-            return;
+        var newnode = function(container, name, text, namespace) {
+          var node = doc.createElementNS(namespace || atom, name);
+          if (text) {
+            node.appendChild(Zotero.OPDS.document.createTextNode(text));
           }
-          var translator = path.pop();
-          var path = path.join('.');
-
-          var items = []
-
-          Zotero.OPDS.log('exporting: ' + path + ' to ' + translator);
-          for (var collectionkey of path.split('+')) {
-            if (collectionkey.charAt(0) != '/') { collectionkey = '/0/' + collectionkey; }
-            Zotero.OPDS.log('exporting ' + collectionkey);
-
-            var path = collectionkey.split('/');
-            path.shift(); // remove leading /
-
-            var libid = parseInt(path.shift());
-            if (isNaN(libid)) {
-              throw('Not a valid library ID: ' + collectionkey);
-            }
-
-            var key = '' + path[0];
-
-            var col = null;
-            for (var name of path) {
-              var children = Zotero.getCollections(col && col.id, false, libid);
-              col = null;
-              for (child of children) {
-                if (child.name.toLowerCase() == name.toLowerCase()) {
-                  col = child;
-                  break;
-                }
-              }
-              if (!col) { break; }
-            }
-
-            if (!col) {
-              col = Zotero.Collections.getByLibraryAndKey(libid, key);
-            }
-
-            if (!col) { throw (collectionkey + ' not found'); }
-
-            var _items = col.getChildren(Zotero.OPDS.pref('recursiveCollections', false, 'zotero'), false, 'item');
-            items = items.concat(Zotero.Items.get([item.id for (item of _items)]));
-          }
-
-          sendResponseCallback(
-            200,
-            "text/plain",
-            Zotero.OPDS.translate(
-              Zotero.OPDS.getTranslator(translator),
-              items,
-              Zotero.OPDS.displayOptions(url)
-            )
-          );
-        } catch (err) {
-          Zotero.OPDS.log("Could not export bibliography '" + collection + "'", err);
-          sendResponseCallback(404, "text/plain", "Could not export bibliography '" + collection + "': " + err);
-        }
-      }
-    },
-
-    library: {
-      supportedMethods: ['GET'],
-
-      init: function(url, data, sendResponseCallback) {
-        var library;
-
-        try {
-          library = url.query[''];
-        } catch (err) {
-          library = null;
+          container.appendChild(node);
+          return node
         }
 
-        if (!library) {
-          sendResponseCallback(501, "text/plain", "Could not export bibliography: no path");
-          return;
-        }
+        newnode(doc.documentElement, 'title', 'Zotero library');
+        newnode(doc.documentElement, 'subtitle', 'Your bibliography, served by Zotero-OPDS ' + Zotero.OPDS.release);
+        var author = newnode(doc.documentElement, 'author');
+          newnode(author, 'name', 'zotero');
+          newnode(author, 'uri', 'https://github.com/AllThatIsTheCase/zotero-opds');
+        newnode(doc.documentElement, 'id', 'urn:zotero-opds:main');
+        newnode(doc.documentElement, 'updated', '2014-06-18T08:33:09Z');
+        var link = newnode(doc.documentElement, 'link');
+          link.setAttribute('href', '/opds/index');
+          link.setAttribute('type', 'application/atom+xml');
+          link.setAttribute('rel', 'start');
 
-        try {
-          var libid = 0;
-          var path = library.split('/');
-          if (path.length > 1) {
-              path.shift(); // leading /
-              libid = parseInt(path[0]);
-              path.shift();
+        ['Date', 'Title', 'Author', 'Publisher', 'Tags'].forEach(function(sortby) {
+          var entry = newnode(doc.documentElement, 'entry');
+            newnode(entry, 'title', 'By ' + sortby);
+            newnode(entry, 'id', 'zotero-opds:by-' + sortby.toLowerCase());
+            newnode(entry, 'updated', '2014-06-18T08:33:09Z');
+            newnode(entry, 'content', 'Books sorted by ' + sortby.toLowerCase());
+            var link = newnode(entry, 'link');
+              link.setAttribute('href', '/opds/by-' + sortby.toLowerCase());
+              link.setAttribute('type', 'application/atom+xml');
+        });
 
-              if (!Zotero.Libraries.exists(libid)) {
-                  sendResponseCallback(404, "text/plain", "Could not export bibliography: library '" + library + "' does not exist");
-                  return;
-              }
-          }
-
-          var path = path.join('/').split('.');
-
-          if (path.length == 1) {
-            sendResponseCallback(404, "text/plain", "Could not export bibliography '" + library + "': no format specified");
-            return;
-          }
-          var translator = path.pop();
-
-          sendResponseCallback(
-            200,
-            "text/plain",
-            Zotero.OPDS.translate(
-              Zotero.OPDS.getTranslator(translator),
-              Zotero.Items.getAll(false, libid, false),
-              Zotero.OPDS.displayOptions(url)
-            )
-          );
-        } catch (err) {
-          Zotero.OPDS.log("Could not export bibliography '" + library + "'", err);
-          sendResponseCallback(404, "text/plain", "Could not export bibliography '" + library + "': " + err);
-        }
+        sendResponseCallback(200, 'application/atom+xml', Zotero.OPDS.indent(doc));
       }
     }
-  },
-
-  translate: function(translator, items, displayOptions) {
-    if (!translator) { throw('null translator'); }
-
-    var translation = new Zotero.Translate.Export();
-    translation.setItems(items);
-    translation.setTranslator(translator);
-    translation.setDisplayOptions(displayOptions);
-
-    var status = {finished: false};
-
-    translation.setHandler("done", function(obj, success) {
-      status.success = success;
-      status.finished = true;
-      if (success) { status.data = obj.string; }
-    });
-    translation.translate();
-
-    while (!status.finished) {}
-
-    if (status.success) {
-      return status.data;
-    } else {
-      throw ('export failed');
-    }
-  },
-
-  safeLoad: function(translator) {
-    try {
-      Zotero.OPDS.load(translator);
-    } catch (err) {
-      Zotero.OPDS.log('Loading ' + translator + ' failed', err);
-    }
-  },
-
-  load: function(translator) {
-    Zotero.OPDS.log('Loading ' + translator);
-
-    var header = null;
-    var data = null;
-    var start = -1;
-
-    try {
-      data = Zotero.File.getContentsFromURL('resource://zotero-opds/translators/' + translator);
-      if (data) { start = data.indexOf('{'); }
-      if (start >= 0) {
-        let len = data.indexOf('}', start);
-        if (len > 0) {
-          for (len -= start; len < 3000; len++) {
-            try {
-              header = JSON.parse(data.substring(start, len).trim());
-              // comment out header but keep linecount the same -- helps in debugging
-              data = data.substring(start + len, data.length);
-              break;
-            } catch (err) {
-            }
-          }
-        }
-      }
-    } catch (err) {
-      header = null;
-    }
-
-    if (!header) {
-      Zotero.OPDS.log('Loading ' + translator + ' failed: could not parse header');
-      return;
-    }
-
-    //header.hiddenPrefs = {}
-    //for(var pref in Zotero.OPDS.config) { header.hiddenPrefs[pref]=Zotero.OPDS.config[pref]; }
-
-    Zotero.OPDS.translators[header.label.toLowerCase().replace(/[^a-z]/, '')] = header.translatorID;
-
-    Zotero.OPDS.log("Installing " + header.label);
-    Zotero.Translators.save(header, data);
-  },
-
-  getTranslator: function(name) {
-    name = name.toLowerCase().replace(/[^a-z]/, '');
-    var translator = Zotero.OPDS.translators['better' + name] || Zotero.OPDS.translators[name];
-    if (!translator) { throw('No translator' + name + '; available: ' + Object.keys(Zotero.OPDS.translators).join(', ')); }
-    return translator;
-  },
-
-  getCiteKeys: function(items) {
-    var translator = Zotero.OPDS.getTranslator('BibTeX Citation Keys');
-    if (!translator) { throw('No translator' + translator); }
-
-    try {
-      Zotero.OPDS.log('Fetching keys: for ' + items.length + ' items');
-      var keys = Zotero.OPDS.translate(translator, [item for (item of items)]);
-      Zotero.OPDS.log('Found keys: ' + keys);
-      return JSON.parse(keys);
-    } catch (err) {
-      Zotero.OPDS.log('Cannot retrieve keys: ', err);
-      return null;
-    }
-  },
-
-  setCiteKeys: function() {
-    var win = Zotero.OPDS.windowMediator.getMostRecentWindow("navigator:browser");
-    var item;
-    var items = win.ZoteroPane.getSelectedItems();
-    items = Zotero.Items.get([item.id for (item of items)]);
-    items = [item for (item of items) if (!(item.isAttachment() || item.isNote()))];
-
-    // clear keys first so the generator can make fresh ones
-    for (item of items) {
-      var extra = '' + item.getField('extra');
-      extra = extra .replace(/bibtex:\s*[^\s\r\n]+/, '');
-      extra = extra.trim();
-      item.setField('extra', extra);
-      item.save();
-    }
-
-    var keys = Zotero.OPDS.getCiteKeys(items);
-    if (!keys) {
-      Zotero.OPDS.log('Cannot set keys');
-      return;
-    }
-
-    items.forEach(function(item) {
-      if (keys[item.id]) {
-        Zotero.OPDS.log('Setting key for ' + item.id + ': ' + keys[item.id]);
-
-        var extra = '' + item.getField('extra');
-        extra = extra.trim();
-        if (extra.length > 0) { extra += "\n"; }
-        item.setField('extra', extra + 'bibtex: ' + keys[item.id]);
-        item.save();
-      }
-    });
   }
 };
 
