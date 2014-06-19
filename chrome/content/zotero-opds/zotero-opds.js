@@ -193,7 +193,7 @@ Zotero.OPDS = {
         root = root.shift();
 
         var item = Zotero.Items.getByLibraryAndKey(library, root);
-        sendResponseCallback(200, item.attachmentMIMEType, Zotero.File.getBinaryContents(item.attachmentPath));
+        sendResponseCallback(200, item.attachmentMIMEType, Zotero.File.getBinaryContents(item.getFile()));
       }
     },
 
