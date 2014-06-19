@@ -1,1 +1,1 @@
-Zotero.OPDS.release = "0.0.7";
+Zotero.OPDS.release = "0.0.8";
