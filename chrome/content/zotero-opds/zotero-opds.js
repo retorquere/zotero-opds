@@ -12,6 +12,10 @@ Zotero.OPDS = {
     dflt:   Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getDefaultBranch("extensions.zotero.opds.")
   },
 
+  clients: {
+    '127.0.0.1': true
+  },
+
   log: function(msg, e) {
     if (typeof msg != 'string') { msg = JSON.stringify(msg); }
 
@@ -47,7 +51,6 @@ Zotero.OPDS = {
 
   init: function () {
     /*
-    Zotero.OPDS.log('Initializing...');
     Zotero.OPDS.xslt.async = false;
     var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');
     Zotero.OPDS.log('stylesheet: ' + stylesheet);
@@ -57,19 +60,39 @@ Zotero.OPDS = {
     } catch (e) {
       Zotero.OPDS.log('could not load stylesheet: ' + e);
     }
-
-    Zotero.OPDS.log('Endpoints...');
     */
 
+    Zotero.OPDS.Server = Zotero.OPDS.Server || {};
+    Zotero.OPDS.Server.SocketListener = Zotero.OPDS.Server.SocketListener || {};
+
+    Zotero.OPDS.Server.SocketListener.onSocketAccepted = Zotero.Server.SocketListener.onSocketAccepted;
+    Zotero.Server.SocketListener.onSocketAccepted = function(socket, transport) {
+      if (typeof Zotero.OPDS.clients[transport.host] == 'undefined') {
+        Zotero.OPDS.clients[transport.host] = confirm('Client ' + transport.host + ' wants to access the embedded webserver');
+      }
+      if (Zotero.OPDS.clients[transport.host]) {
+        Zotero.OPDS.Server.SocketListener.onSocketAccepted.apply(this, [socket, transport]);
+      } else {
+        socket.close();
+      }
+    }
+
+    Zotero.OPDS.Server.init = Zotero.Server.init;
+    Zotero.Server.init = function(port, bindAllAddr, maxConcurrentConnections) {
+      Zotero.OPDS.log('Zotero server now enabled for non-localhost!');
+      return Zotero.OPDS.Server.init.apply(this, [port, true, maxConcurrentConnections]);
+    }
+
+    Zotero.Server.close();
+    Zotero.Server.init();
+
     for (var endpoint of Object.keys(Zotero.OPDS.endpoints)) {
-      var url = "/opds/" + endpoint;
+      var url = (endpoint == 'index' ? '/opds' : '/opds/' + endpoint);
       Zotero.OPDS.log('Registering endpoint ' + url);
       var ep = Zotero.Server.Endpoints[url] = function() {};
       ep.prototype = Zotero.OPDS.endpoints[endpoint];
     }
-    Zotero.OPDS.log('Done!');
   },
-
 
   Feed: function(id, name) {
     this.id = id;
@@ -250,6 +273,7 @@ Zotero.OPDS = {
     }
   }
 };
+
 
 // Initialize the utility
 window.addEventListener('load', function(e) { Zotero.OPDS.init(); }, false);
