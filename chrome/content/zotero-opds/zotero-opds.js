@@ -68,7 +68,7 @@ Zotero.OPDS = {
     Zotero.OPDS.Server.SocketListener.onSocketAccepted = Zotero.Server.SocketListener.onSocketAccepted;
     Zotero.Server.SocketListener.onSocketAccepted = function(socket, transport) {
       if (typeof Zotero.OPDS.clients[transport.host] == 'undefined') {
-        Zotero.OPDS.clients[transport.host] = confirm('Client ' + transport.host + ' wants to access the embedded webserver');
+        Zotero.OPDS.clients[transport.host] = confirm('Client ' + transport.host + ' wants to access the Zotero embedded webserver');
       }
       if (Zotero.OPDS.clients[transport.host]) {
         Zotero.OPDS.Server.SocketListener.onSocketAccepted.apply(this, [socket, transport]);
@@ -94,9 +94,27 @@ Zotero.OPDS = {
     }
   },
 
-  Feed: function(id, name) {
-    this.id = id;
+  Feed: function(name, updated, url, kind) {
+    this.id = url;
     this.name = name;
+    this.updated = updated;
+    this.kind = kind;
+    this.url = url;
+
+    var self = this;
+    ['id', 'name', 'updated', 'kind', 'url'].forEach(function(key) {
+      if (!self[key]) { throw('Feed needs ' + key); }
+    });
+
+    this.rjust = function(v) {
+      v = '0' + v;
+      return v.slice(v.length - 2, v.length);
+    }
+
+    this.date = function(timestamp) {
+      if (typeof timestamp == 'string') { timestamp = Zotero.Date.sqlToDate(timestamp); }
+      return (timestamp || new Date()).toISOString();
+    };
 
     this.namespace = {
       dc: 'http://purl.org/dc/terms/',
@@ -109,53 +127,71 @@ Zotero.OPDS = {
       if (text) {
         node.appendChild(Zotero.OPDS.document.createTextNode(text));
       }
-      (this._root || this.doc.documentElement).appendChild(node);
+      this.stack[0].appendChild(node);
       return node;
     };
 
-    this.root = function(node) {
-      this._root = node;
+    this.push = function(node) {
+      this.stack.unshift(node);
       return node;
     }
 
+    this.pop = function() {
+      if (this.stack.length == 1) {
+        return stack[0];
+      }
+      return this.stack.shift();
+    }
+    this.clearstack = function() {
+      this.stack = [this.doc.documentElement];
+    }
+
     this.doc = Zotero.OPDS.document.implementation.createDocument(this.namespace.atom, 'feed', null);
+    this.clearstack();
     this.doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:dc', this.namespace.dc);
     this.doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:opds', this.namespace.opds);
 
     this.newnode('title', this.name || 'Zotero library');
     this.newnode('subtitle', 'Your bibliography, served by Zotero-OPDS ' + Zotero.OPDS.release);
-    this.root(this.newnode('author'));
+    this.push(this.newnode('author'));
       this.newnode('name', 'zotero');
       this.newnode('uri', 'https://github.com/AllThatIsTheCase/zotero-opds');
-    this.root();
+    this.pop();
+    this.newnode('updated', this.date(this.updated));
 
-    this.newnode('id', 'urn:zotero-opds:' + (this.id || 'main'));
-    //var link = this.newnode('link');
-    //  link.setAttribute('href', '/opds');
-    //  link.setAttribute('type', 'application/atom+xml');
-    //  link.setAttribute('rel', 'start');
+    this.newnode('id', 'urn:zotero-opds:' + this.id);
+    var link = this.newnode('link');
+      link.setAttribute('href', this.url);
+      link.setAttribute('type', 'application/atom+xml;profile=opds-catalog;kind=' + this.kind);
+      link.setAttribute('rel', 'self');
 
     this.item = function(group, item) {
-      this.root(this.newnode('entry'));
-        this.newnode('title', item.getDisplayTitle(true));
+      var attachments = [];
+      if (item.isAttachment()) {
+        attachments = [item];
+      } else {
+        attachments = item.getAttachments();
+      }
+      if (attachments.length == 0) { return; }
+      var title = item.getDisplayTitle(true);
+
+      this.push(this.newnode('entry'));
+        this.newnode('title', title);
         this.newnode('id', 'zotero-opds:' + item.key);
+        this.push(this.newnode('author'));
+          this.newnode('name', item.firstCreator);
+        this.pop();
+        this.newnode('updated', this.date(item.getField('dateModified')));
 
         var abstr = item.getField('abstract');
         if (abstr && abstr.length != 0) {
-          this.newnode('summary', abstr);
-        }
-
-        var attachments = [];
-        if (item.isAttachment()) {
-          attachments = [item];
-        } else {
-          attachments = item.getAttachments();
+          this.newnode('content', abstr);
         }
 
         var self = this;
         attachments.forEach(function(a) {
           var link = self.newnode('link');
-            link.setAttribute('rel', 'http://opds-spec.org/acquisition/open-access');
+            link.setAttribute('rel', 'http://opds-spec.org/acquisition');
             link.setAttribute('href', '/opds/attachment?id=' + group + ':' + a.key);
             link.setAttribute('type', a.attachmentMIMEType);
         });
@@ -165,17 +201,18 @@ Zotero.OPDS = {
           link.setAttribute('href', '/opds/item?id=' + group + ':' + item.key);
           link.setAttribute('type', 'application/atom+xml');
         */
-      this.root();
+      this.pop();
     }
 
-    this.entry = function(title, id, url) {
-      this.root(this.newnode('entry'));
+    this.entry = function(title, id, url, updated) {
+      this.push(this.newnode('entry'));
         this.newnode('title', title);
         this.newnode('id', 'zotero-opds:' + id);
         var link = this.newnode('link');
           link.setAttribute('href', url);
           link.setAttribute('type', 'application/atom+xml');
-      this.root();
+        this.newnode('updated', this.date(updated));
+      this.pop();
     }
 
     this.serialize = function() {
@@ -183,30 +220,45 @@ Zotero.OPDS = {
     }
   },
 
+  sql: {
+    index: 'select max(dateModified) from items',
+    group: 'select max(dateModified) from items where libraryID = ?',
+    collection: 'with recursive collectiontree (collection) as (values (?) union all select c.collectionID from collections c join collectiontree ct on c.parentCollectionID = ct.collection) select max(dateModified) from collectiontree ct join collectionItems ci on ct.collection = ci.collectionID join items i on ci.itemID = i.itemID'
+  },
+
+  buildurl: function(base, q) {
+    var url = base + '?id=' + q.id;
+    if (q.kind == 'acquisition') {
+      url = url + '&kind=acquisition';
+    }
+    return url;
+  },
+
   endpoints: {
     index: {
       supportedMethods: ['GET'],
-
       init: function(url, data, sendResponseCallback) {
-        var doc = new Zotero.OPDS.Feed();
+        var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.index);
+        var doc = new Zotero.OPDS.Feed('Zotero Library', updated, '/opds', 'navigation');
 
         Zotero.getCollections().forEach(function(collection) {
-          doc.entry(collection.name, collection.key, '/opds/collection?id=0:' + collection.key);
+          var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) || collection.dateModified;
+          doc.entry(collection.name, collection.key, '/opds/collection?id=0:' + collection.key, updated);
         });
 
         // don't forget to add saved searches
 
         Zotero.Groups.getAll().forEach(function(group) {
-          doc.entry(group.name, group.key, '/opds/group?id=' + group.id);
+          var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id);
+          doc.entry(group.name, group.key, '/opds/group?id=' + group.id, updated);
         });
 
         sendResponseCallback(200, 'application/atom+xml', doc.serialize());
       }
     },
 
-    attachment: {
+    item: {
       supportedMethods: ['GET'],
-
       init: function(url, data, sendResponseCallback) {
         var root = url.query.id.split(':');
         if (root.length != 2) { return sendResponseCallback(500, 'text/plain', 'Unexpected OPDS root ' + url.query.id); }
@@ -222,23 +274,25 @@ Zotero.OPDS = {
 
     group: {
       supportedMethods: ['GET'],
-
       init: function(url, data, sendResponseCallback) {
-        var doc = new Zotero.OPDS.Feed();
+        var libraryID = Zotero.Groups.getLibraryIDFromGroupID(query.id);
+        var group = Zotero.Groups.getByLibraryID(libraryID);
+        var collections = group.getCollections();
+        var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, libraryID)
 
-        var group = url.query.id;
-        var library = Zotero.Groups.getLibraryIDFromGroupID(library);
-        var root = Zotero.Groups.getByLibraryID(library);
-        collections = root.getCollections();
-        root = new Zotero.ItemGroup('group', root);
+        var doc = new Zotero.OPDS.Feed('Zotero Library Group ' + group.name, updated, Zotero.OPDS.buildurl('/opds/group', url.query), url.query.kind || 'navigation');
 
-        (collections || []).forEach(function(collection) {
-          doc.entry(collection.name, collection.key, '/opds/collection?id=' + group + ':' + collection.key);
-        });
-
-        (root.getItems() || []).forEach(function(item) {
-          doc.item(group, item);
-        });
+        if (url.query.kind == 'acquisition') {
+          var items = (new Zotero.ItemGroup('group', group)).getItems();
+          (items || []).forEach(function(item) {
+            doc.item(group, item);
+          });
+        } else {
+          (collections || []).forEach(function(collection) {
+            var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) || collection.dateModified;
+            doc.entry(collection.name, collection.key, '/opds/collection?id=' + query.id + ':' + collection.key, updated);
+          });
+        }
 
         sendResponseCallback(200, 'application/atom+xml', doc.serialize());
       }
@@ -246,27 +300,27 @@ Zotero.OPDS = {
 
     collection: {
       supportedMethods: ['GET'],
-
       init: function(url, data, sendResponseCallback) {
-        var doc = new Zotero.OPDS.Feed();
+        var q = url.query.id.split(':');
+        q = {group: q.shift(), collection: q.shift()};
+        if (!q.group || !q.collection) { return sendResponseCallback(500, 'text/plain', 'Unexpected OPDS collection ' + url.query.id); }
 
-        var root = url.query.id.split(':');
-        if (root.length != 2) { return sendResponseCallback(500, 'text/plain', 'Unexpected OPDS root ' + url.query.id); }
+        var library = (q.group == '0' ? null : Zotero.Groups.getLibraryIDFromGroupID(q.group));
+        var collection =  Zotero.Collections.getByLibraryAndKey(library, q.collection);
+        var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) || collection.dateModified;
 
-        var group = root.shift();
-        var library = (group == '0' ? null : Zotero.Groups.getLibraryIDFromGroupID(group));
-        root = root.shift();
-        root =  Zotero.Collections.getByLibraryAndKey(library, root);
-        collections = root.getChildCollections();
-        root = new Zotero.ItemGroup('collection', root);
+        var doc = new Zotero.OPDS.Feed('Zotero Library Collection ' + collection.name, updated, Zotero.OPDS.buildurl('/opds/collection', url.query), url.query.kind || 'navigation');
 
-        (collections || []).forEach(function(collection) {
-          doc.entry(collection.name, collection.key, '/opds/collection?id=' + group + ':' + collection.key);
-        });
-
-        (root.getItems() || []).forEach(function(item) {
-          doc.item(group, item);
-        });
+        if (url.query.kind == 'acquisition') {
+          (collection.getItems() || []).forEach(function(item) {
+            doc.item(group, item);
+          });
+        } else {
+          (collection.getChildCollections() || []).forEach(function(collection) {
+            var updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) || collection.dateModified;
+            doc.entry(collection.name, collection.key, '/opds/collection?id=' + q.group + ':' + collection.key);
+          });
+        }
 
         sendResponseCallback(200, 'application/atom+xml', doc.serialize());
       }
