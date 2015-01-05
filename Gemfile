@@ -3,10 +3,12 @@
 
 source 'https://rubygems.org'
 
-gem 'facets'
-gem 'trollop'
-gem 'rake'
-gem 'nokogiri'
-gem 'rss-opds'
 gem 'epub-parser'
+gem 'facets'
+gem 'nokogiri'
+gem 'rake'
+gem 'rss-opds'
 gem 'rubyzip'
+gem 'trollop'
+gem 'zotplus-rakehelper'
+
