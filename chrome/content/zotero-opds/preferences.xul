@@ -3,7 +3,8 @@
 <!DOCTYPE window SYSTEM "chrome://zotero-opds/locale/zotero-opds.dtd">
 
 <overlay id="zotero-opds-preferences"
-	xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+	xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml">
 	
   <prefwindow id="zotero-prefs">
     <prefpane id="zotero-prefpane-opds"
@@ -13,15 +14,7 @@
             onpaneload="updatePreferences();"
             >
       <preferences id="zotero-preferences-cite">
-        <preference id="pref-opds-recursive" name="extensions.zotero.recursiveCollections" type="bool"/>
-        <preference id="pref-opds-citecommand" name="extensions.zotero.translators.opds.citeCommand" type="string"/>
-        <preference id="pref-opds-format" name="extensions.zotero.translators.opds.citeKeyFormat" type="string"/>
-        <preference id="pref-opds-skipFields" name="extensions.zotero.translators.opds.skipfields" type="string"/>
-        <preference id="pref-opds-server" name="extensions.zotero.httpServer.enabled" type="bool"/>
-        <preference id="pref-opds-unicode" name="extensions.zotero.translators.opds.unicode" type="string"/>
-        <preference id="pref-opds-fancyurls" name="extensions.zotero.translators.opds.fancyURLs" type="bool"/>
-        <preference id="pref-opds-brace-all" name="extensions.zotero.translators.opds.brace-all" type="bool"/>
-        <preference id="pref-opds-useprefix" name="extensions.zotero.translators.opds.useprefix" type="bool"/>
+        <preference id="pref-opds-secret" name="extensions.zotero.opds.secret" type="string"/>
       </preferences>
       <vbox flex="1">
         <grid>
@@ -30,42 +23,13 @@
           </columns>
           <rows>
             <row>
-              <label value="&zotero.opds.cite.command;"/>
-              <textbox id="id-opds-preferences-citeCommand" preference="pref-opds-citecommand" onchange="updatePreferences(event);" onkeypress="setTimeout(updatePreferences, 1);"/>
+              <label value="&zotero.opds.secret;"/>
+              <textbox id="id-opds-preferences-secret" preference="pref-opds-secret"/>
             </row>
             <row>
-              <label value="&zotero.opds.cite.format;"/>
-              <textbox id="id-opds-preferences-citeKeyFormat" preference="pref-opds-format" oninput="updatePreferences(event);" onkeypress="setTimeout(updatePreferences, 1);"/>
-            </row>
+              <button label="New Secret" oncommand="newSecret();"/>
             <row>
-              <label value="&zotero.opds.skipFields;"/>
-              <textbox id="id-opds-preferences-skipFields" preference="pref-opds-skipFields" oninput="updatePreferences(event);" onkeypress="setTimeout(updatePreferences, 1);"/>
-            </row>
-            <row>
-              <label value="&zotero.opds.unicode;"/>
-              <radiogroup id="id-opds-preferences-unicode" orient="horizontal" preference="pref-opds-unicode" oncommand="updatePreferences();">
-                <radio id="id-opds-preferences-unicode-default" label="&zotero.opds.unicode.default;" value=""/>
-                <radio id="id-opds-preferences-unicode-always" label="&zotero.opds.unicode.always;" value="always"/>
-                <radio id="id-opds-preferences-unicode-never" label="&zotero.opds.unicode.never;" value="never"/>
-              </radiogroup>
-            </row>
-            <row>
-              <checkbox id="id-opds-preferences-useprefix" label="&zotero.opds.useprefix;" preference="pref-opds-useprefix"/>
-            </row>
-            <row>
-              <checkbox id="id-opds-preferences-brace-all" label="&zotero.opds.brace-all;" preference="pref-opds-brace-all" oncommand="updatePreferences();"/>
-            </row>
-            <row>
-              <checkbox id="id-opds-preferences-fancyURLs" label="&zotero.opds.fancyURLs;" preference="pref-opds-fancyurls" oncommand="updatePreferences();"/>
-              <label id="id-opds-preferences-fancyURLs-warning" hidden="true" style="color: red">&zotero.opds.fancyURLs.warning;</label>
-            </row>
-            <row>
-              <checkbox id="id-opds-preferences-getCollections" label="&zotero.opds.preferences.recursive;" preference="pref-opds-recursive" oncommand="updatePreferences();"/>
-              <label id="id-zotero-opds-recursive-warning" hidden="true" style="color: red">&zotero.opds.recursive.warning;</label>
-            </row>
-            <row>
-              <checkbox id="id-opds-preferences-server-enabled" label="&zotero.opds.server.enabled;" preference="pref-opds-server" oncommand="updatePreferences();"/>
-              <label id="id-zotero-opds-server-warning" hidden="true" style="color: red">&zotero.opds.server.warning;</label>
+              <html:canvas id="id-opds-qr" width="80" height="80" style="border:1px solid black;"/>
             </row>
           </rows>
         </grid>
@@ -76,5 +40,5 @@
 	<!-- Include the main extension logic -->
 	<script src="preferences.js"/>
 	<script src="chrome://zotero/content/include.js"/>
-	<script src="chrome://zotero-opds/content/include.js" type="application/javascript;version=1.8"/>
+	<script src="chrome://zotero-opds/content/include.js"/>
 </overlay>

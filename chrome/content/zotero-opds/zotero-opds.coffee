@@ -4,11 +4,84 @@ Zotero.OPDS =
   document: Components.classes["@mozilla.org/xul/xul-document;1"].getService(Components.interfaces.nsIDOMDocument)
   serializer: Components.classes["@mozilla.org/xmlextras/xmlserializer;1"].createInstance(Components.interfaces.nsIDOMSerializer)
   parser: Components.classes["@mozilla.org/xmlextras/domparser;1"].createInstance(Components.interfaces.nsIDOMParser)
-  xslt: Components.classes["@mozilla.org/document-transformer;1?type=xslt"].createInstance(Components.interfaces.nsIXSLTProcessor)
-  prefs:
-    zotero: Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero.")
-    opds: Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getBranch("extensions.zotero.opds.")
-    dflt: Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefService).getDefaultBranch("extensions.zotero.opds.")
+  # xslt: Components.classes["@mozilla.org/document-transformer;1?type=xslt"].createInstance(Components.interfaces.nsIXSLTProcessor)
+
+  QR: qr.noConflict()
+
+  # courtesy http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
+  TOTP: class
+    dec2hex: (s) -> (if s < 15.5 then '0' else '') + Math.round(s).toString(16)
+
+    hex2dec: (s) -> parseInt(s, 16)
+
+    # courtesy http://forthescience.org/blog/2010/11/30/base32-encoding-in-javascript/
+    b32encode: (s) ->
+      alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+      parts = []
+      quanta = Math.floor((s.length / 5))
+      leftover = s.length % 5
+
+      if leftover != 0
+        s += '\x00' for i in [0...5 - leftover]
+        quanta += 1
+
+      for i in [0...quanta]
+        parts.push(alphabet.charAt(s.charCodeAt(i * 5) >> 3))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5) & 0x07) << 2) | (s.charCodeAt(i * 5 + 1) >> 6)))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 1) & 0x3F) >> 1) ))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 1) & 0x01) << 4) | (s.charCodeAt(i * 5 + 2) >> 4)))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 2) & 0x0F) << 1) | (s.charCodeAt(i * 5 + 3) >> 7)))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 3) & 0x7F) >> 2)))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 3) & 0x03) << 3) | (s.charCodeAt(i * 5 + 4) >> 5)))
+        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 4) & 0x1F) )))
+
+      replace = switch leftover
+        when 1 then 6
+        when 2 then 4
+        when 3 then 3
+        when 4 then 1
+        else 0
+
+      parts.pop() for i in [0...replace]
+      parts.push('=') for i in [0...replace]
+
+      return parts.join('')
+
+    base32tohex: (base32) ->
+      base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+      bits = (leftpad(base32chars.indexOf(c).toString(2), 5, '0') for c in base32.toUpperCase()).join('')
+      hex = (parseInt(bits.substr(i, 4), 2).toString(16) for i in [0..bits.length] by 4).join('')
+      return hex
+
+    leftpad: (str, len, pad) ->
+      return str if len > str.length
+      return Array(len + 1 - str.length).join(pad) + str
+
+    otp: ->
+      secret = Zotero.Prefs.get('opds.secret')
+      return if secret == ''
+      return secret
+
+      key = base32tohex(secret)
+      epoch = Math.round(new Date().getTime() / 1000.0)
+      time = leftpad(dec2hex(Math.floor(epoch / 30)), 16, '0')
+      hmacObj = new jsSHA(time, 'HEX')
+      hmac = hmacObj.getHMAC(key, 'HEX', 'SHA-1', 'HEX')
+      throw(hmac) if hmac == 'KEY MUST BE IN BYTE INCREMENTS'
+
+      offset = hex2dec(hmac.substring(hmac.length - 1))
+      otp = (hex2dec(hmac.substr(offset * 2, 8)) & hex2dec('7fffffff')) + ''
+      otp = otp.substr(otp.length - 6, 6)
+      return otp
+
+  qr: ->
+    secret = Zotero.Prefs.get('opds.secret')
+    return if secret == ''
+    return "https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=200x200&chld=M|0&cht=qr&chl=otpauth://totp/Zotero%20OPDS%3Fsecret%3D#{secret}"
+    #secretHex = key
+    #secretHexLength = (key.length * 4) + ' bits'
+    #epoch time
 
   clients:
     "127.0.0.1": true
@@ -23,26 +96,11 @@ Zotero.OPDS =
       else
         msg += e
       msg += "\n" + e.stack  if e.stack
-    Zotero.debug msg
-    console.log msg
-    return
-
-  pref: (key, dflt, branch) ->
-    branch = Zotero.OPDS.prefs[branch or "bbt"]
-    try
-      switch typeof dflt
-        when "boolean"
-          return branch.getBoolPref(key)
-        when "number"
-          return branch.getIntPref(key)
-        when "string"
-          return branch.getCharPref(key)
-    catch err
-      return dflt
+    Zotero.debug(msg)
     return
 
   init: ->
-    
+    @otp = new TOTP
     #
     #    Zotero.OPDS.xslt.async = false;
     #    var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');
@@ -53,109 +111,100 @@ Zotero.OPDS =
     #    } catch (e) {
     #      Zotero.OPDS.log('could not load stylesheet: ' + e);
     #    }
-    #    
-    Zotero.OPDS.Server = Zotero.OPDS.Server or {}
-    Zotero.OPDS.Server.SocketListener = Zotero.OPDS.Server.SocketListener or {}
-    Zotero.OPDS.Server.SocketListener.onSocketAccepted = Zotero.Server.SocketListener.onSocketAccepted
-    Zotero.Server.SocketListener.onSocketAccepted = (socket, transport) ->
-      Zotero.OPDS.clients[transport.host] = confirm("Client " + transport.host + " wants to access the Zotero embedded webserver")  if typeof Zotero.OPDS.clients[transport.host] == "undefined"
-      if Zotero.OPDS.clients[transport.host]
-        Zotero.OPDS.Server.SocketListener.onSocketAccepted.apply this, [
-          socket
-          transport
-        ]
-      else
-        socket.close()
-      return
+    #
 
-    Zotero.OPDS.Server.init = Zotero.Server.init
-    Zotero.Server.init = (port, bindAllAddr, maxConcurrentConnections) ->
-      Zotero.OPDS.log "Zotero server now enabled for non-localhost!"
-      Zotero.OPDS.Server.init.apply this, [
-        port
-        true
-        maxConcurrentConnections
-      ]
+    Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
+      return (socket, transport) ->
+        Zotero.OPDS.clients[transport.host] or= (prompt("Client #{transport.host} wants to access the Zotero embedded webserver. Enter authentication code to confirm", '') == @otp.otp())
+        if Zotero.OPDS.clients[transport.host]
+          return original.apply(this, arguments)
+        else
+          socket.close()
+        return
+      )(Zotero.Server.SocketListener.onSocketAccepted)
+
+    Zotero.Server.init = ((original) ->
+      return (port, bindAllAddr, maxConcurrentConnections) ->
+        Zotero.OPDS.log("Zotero server now enabled for non-localhost!")
+        return original.apply(this, [port, true, maxConcurrentConnections])
+      )(Zotero.Server.init)
 
     Zotero.Server.close()
     Zotero.Server.init()
-    
+
     for endpoint in Object.keys(Zotero.OPDS.endpoints)
-      url = ((if endpoint == "index" then "/opds" else "/opds/" + endpoint))
-      Zotero.OPDS.log "Registering endpoint " + url
+      url = (if endpoint == "index" then "/opds" else "/opds/#{endpoint}")
+      Zotero.OPDS.log("Registering endpoint #{url}")
       ep = Zotero.Server.Endpoints[url] = ->
 
       ep:: = Zotero.OPDS.endpoints[endpoint]
     return
 
-  Feed: (name, updated, url, kind) ->
-    @id = url
-    @name = name
-    @updated = updated
-    @kind = kind
-    @url = url
-    for key in [ "id", "name", "updated", "kind", "url" ]
-      throw ("Feed needs " + key)  unless @[key]
+  Feed: class
+    constructor: (@name, @updated, @url, @kind) ->
+      @id = @url
+      for key in [ "id", "name", "updated", "kind", "url" ]
+        throw ("Feed needs #{key}")  unless @[key]
 
-    @rjust = (v) ->
+      @doc = Zotero.OPDS.document.implementation.createDocument(@namespace.atom, "feed", null)
+      @clearstack()
+      @doc.documentElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:dc", @namespace.dc)
+      @doc.documentElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:opds", @namespace.opds)
+      @newnode("title", @name || "Zotero library")
+      @newnode("subtitle", "Your bibliography, served by Zotero-OPDS #{Zotero.OPDS.release}")
+      @push(@newnode("author"))
+      @newnode("name", "zotero")
+      @newnode("uri", "https://github.com/AllThatIsTheCase/zotero-opds")
+      @pop()
+      @newnode("updated", @date(@updated))
+      @newnode("id", "urn:zotero-opds:#{@id}")
+      link = @newnode("link")
+      link.setAttribute("href", @url)
+      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=#{@kind}")
+      link.setAttribute("rel", "self")
+
+    rjust: (v) ->
       v = "0" + v
-      v.slice v.length - 2, v.length
+      return v.slice(v.length - 2, v.length)
 
-    @date = (timestamp) ->
+    date: (timestamp) ->
       timestamp = Zotero.Date.sqlToDate(timestamp)  if typeof timestamp == "string"
-      (timestamp or new Date()).toISOString()
+      return (timestamp or new Date()).toISOString()
 
-    @namespace =
+    namespace:
       dc: "http://purl.org/dc/terms/"
       opds: "http://opds-spec.org/2010/catalog"
       atom: "http://www.w3.org/2005/Atom"
 
-    @comment = (text) ->
-      @stack[0].appendChild @doc.createComment(text)
+    comment: (text) ->
+      @stack[0].appendChild(@doc.createComment(text))
       return
 
-    @newnode = (name, text, namespace) ->
+    newnode: (name, text, namespace) ->
       node = @doc.createElementNS(namespace or @namespace.atom, name)
-      node.appendChild Zotero.OPDS.document.createTextNode(text)  if text
-      @stack[0].appendChild node
-      node
+      node.appendChild(Zotero.OPDS.document.createTextNode(text))  if text
+      @stack[0].appendChild(node)
+      return node
 
-    @push = (node) ->
-      @stack.unshift node
-      node
+    push: (node) ->
+      @stack.unshift(node)
+      return node
 
-    @pop = ->
+    pop: ->
       return stack[0]  if @stack.length == 1
-      @stack.shift()
+      return @stack.shift()
 
-    @clearstack = ->
+    clearstack: ->
       @stack = [@doc.documentElement]
       return
 
-    @doc = Zotero.OPDS.document.implementation.createDocument(@namespace.atom, "feed", null)
-    @clearstack()
-    @doc.documentElement.setAttributeNS "http://www.w3.org/2000/xmlns/", "xmlns:dc", @namespace.dc
-    @doc.documentElement.setAttributeNS "http://www.w3.org/2000/xmlns/", "xmlns:opds", @namespace.opds
-    @newnode "title", @name or "Zotero library"
-    @newnode "subtitle", "Your bibliography, served by Zotero-OPDS " + Zotero.OPDS.release
-    @push @newnode("author")
-    @newnode "name", "zotero"
-    @newnode "uri", "https://github.com/AllThatIsTheCase/zotero-opds"
-    @pop()
-    @newnode "updated", @date(@updated)
-    @newnode "id", "urn:zotero-opds:" + @id
-    link = @newnode("link")
-    link.setAttribute "href", @url
-    link.setAttribute "type", "application/atom+xml;profile=opds-catalog;kind=" + @kind
-    link.setAttribute "rel", "self"
-
-    @item = (group, item) ->
+    item: (group, item) ->
       attachments = []
       if item.isAttachment()
         attachments = [item]
       else
         attachments = item.getAttachments() or []
-      attachments = (a for a in attachments where a.attachmentMIMEType and a.attachmentMIMEType != "text/html")
+      attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
       return  if attachments.length == 0
 
       title = item.getDisplayTitle(true)
@@ -180,7 +229,7 @@ Zotero.OPDS =
       @pop()
       return
 
-    @entry = (title, url, updated) ->
+    entry: (title, url, updated) ->
       @comment("entry: #{title}")
       @push(@newnode("entry"))
       @newnode("title", title)
@@ -192,9 +241,7 @@ Zotero.OPDS =
       @pop()
       return
 
-    @serialize = -> Zotero.OPDS.serializer.serializeToString(@doc)
-
-    return
+    serialize: -> Zotero.OPDS.serializer.serializeToString(@doc)
 
   sql:
     index: "select max(dateModified) from items"
