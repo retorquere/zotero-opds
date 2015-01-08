@@ -100,7 +100,7 @@ Zotero.OPDS =
     return
 
   init: ->
-    @otp = new TOTP
+    @otp = new @TOTP
     #
     #    Zotero.OPDS.xslt.async = false;
     #    var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');

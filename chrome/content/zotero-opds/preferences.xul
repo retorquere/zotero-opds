@@ -17,22 +17,15 @@
         <preference id="pref-opds-secret" name="extensions.zotero.opds.secret" type="string"/>
       </preferences>
       <vbox flex="1">
-        <grid>
-          <columns>
-            <column/>
-          </columns>
-          <rows>
-            <row>
-              <label value="&zotero.opds.secret;"/>
-              <textbox id="id-opds-preferences-secret" preference="pref-opds-secret"/>
-            </row>
-            <row>
-              <button label="New Secret" oncommand="newSecret();"/>
-            <row>
-              <html:canvas id="id-opds-qr" width="80" height="80" style="border:1px solid black;"/>
-            </row>
-          </rows>
-        </grid>
+        <hbox flex="1">
+          <label value="&zotero.opds.secret;"/>
+          <textbox id="id-opds-preferences-secret" readonly="true" preference="pref-opds-secret"/>
+        </hbox>
+        <button label="New Secret" oncommand="newSecret();"/>
+        <textbox id="id-opds-preferences-url" readonly="true"/>
+        <hbox width="80px" height="80px">
+          <html:canvas id="id-opds-qr" style="border:1px solid black;"/>
+        </hbox>
       </vbox>
     </prefpane>
   </prefwindow>
@@ -41,4 +34,5 @@
 	<script src="preferences.js"/>
 	<script src="chrome://zotero/content/include.js"/>
 	<script src="chrome://zotero-opds/content/include.js"/>
+	<script src="chrome://zotero-opds/content/preferences.js"/>
 </overlay>
