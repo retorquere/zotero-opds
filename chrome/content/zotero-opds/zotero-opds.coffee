@@ -9,7 +9,7 @@ Zotero.OPDS =
   QR: qr.noConflict()
 
   # courtesy http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
-  TOTP: class
+  TOTP:
     dec2hex: (s) -> (if s < 15.5 then '0' else '') + Math.round(s).toString(16)
 
     hex2dec: (s) -> parseInt(s, 16)
@@ -75,14 +75,6 @@ Zotero.OPDS =
       otp = otp.substr(otp.length - 6, 6)
       return otp
 
-  qr: ->
-    secret = Zotero.Prefs.get('opds.secret')
-    return if secret == ''
-    return "https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=200x200&chld=M|0&cht=qr&chl=otpauth://totp/Zotero%20OPDS%3Fsecret%3D#{secret}"
-    #secretHex = key
-    #secretHexLength = (key.length * 4) + ' bits'
-    #epoch time
-
   clients:
     "127.0.0.1": true
 
@@ -100,7 +92,6 @@ Zotero.OPDS =
     return
 
   init: ->
-    @otp = new @TOTP
     #
     #    Zotero.OPDS.xslt.async = false;
     #    var stylesheet = Zotero.File.getContentsFromURL('resource://zotero-opds/indent.xslt');
@@ -115,7 +106,7 @@ Zotero.OPDS =
 
     Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
       return (socket, transport) ->
-        Zotero.OPDS.clients[transport.host] or= (prompt("Client #{transport.host} wants to access the Zotero embedded webserver. Enter authentication code to confirm", '') == @otp.otp())
+        Zotero.OPDS.clients[transport.host] or= (prompt("Client #{transport.host} wants to access the Zotero embedded webserver. Enter authentication code to confirm", '') == Zotero.OPDS.TOTP.otp())
         if Zotero.OPDS.clients[transport.host]
           return original.apply(this, arguments)
         else
