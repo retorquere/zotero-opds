@@ -14,18 +14,31 @@
             onpaneload="updatePreferences();"
             >
       <preferences id="zotero-preferences-cite">
-        <preference id="pref-opds-secret" name="extensions.zotero.opds.secret" type="string"/>
+        <preference id="pref-opds-hostname" name="extensions.zotero.opds.hostname" type="string"/>
+        <preference id="pref-opds-url" name="extensions.zotero.opds.dyndns" type="string"/>
       </preferences>
       <vbox flex="1">
         <grid>
           <columns>
             <column/>
-            <column width="80px"/>
+            <column flex="1"/>
           </columns>
           <rows>
-            <row height="80px">
-              <button label="New Secret" oncommand="newSecret();"/>
-              <html:canvas id="id-opds-qr"/>
+            <row>
+              <vbox><button label="New Secret" oncommand="newSecret();"/></vbox>
+              <hbox height="80px" width="80px"><html:canvas height="80px" width="80px" id="id-opds-qr"/><spacer flex="1"/></hbox>
+            </row>
+            <row>
+              <label value="hostname"/>
+              <textbox id="id-opds-hostname" preference="pref-opds-hostname"/>
+            </row>
+            <row>
+              <label value="Update URL"/>
+              <textbox id="id-opds-dyndns-url" preference="pref-opds-url"/>
+            </row>
+            <row>
+              <label value="OPDS URL"/>
+              <textbox id="id-opds-opds-url" readonly="true"/>
             </row>
           </rows>
         </grid>

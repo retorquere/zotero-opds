@@ -11,6 +11,9 @@ refresh = ->
   # document.getElementById('id-opds-preferences-secret').value = secret
   # document.getElementById('id-opds-preferences-url').value = url
   Zotero.OPDS.QR.canvas({ canvas: document.getElementById('id-opds-qr'), value: url})
+
+  url = Zotero.OPDS.url()
+  document.getElementById('id-opds-opds-url').value = if url then url + '/opds' else 'Not configured'
   return
 
 updatePreferences = ->

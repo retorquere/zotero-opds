@@ -91,6 +91,14 @@ Zotero.OPDS =
     Zotero.debug(msg)
     return
 
+  url: ->
+    try
+      port = Zotero.Prefs.get('httpServer.port')
+    catch
+      return
+
+    return "http://#{Zotero.Prefs.get('opds.hostname')}:#{port}"
+
   init: ->
     #
     #    Zotero.OPDS.xslt.async = false;
@@ -103,6 +111,29 @@ Zotero.OPDS =
     #      Zotero.OPDS.log('could not load stylesheet: ' + e);
     #    }
     #
+
+    # update dyndns, if any
+    dns = Components.classes["@mozilla.org/network/dns-service;1"].createInstance(Components.interfaces.nsIDNSService)
+    Zotero.debug("DYNDNS: resolving #{dns.myHostName}")
+    dns.asyncResolve(dns.myHostName, 0, {
+      onLookupComplete: (req, rec, status) ->
+        address = ''
+        while rec.hasMore()
+          ip = rec.getNextAddrAsString()
+          address = ip if ip.indexOf(':') < 0
+
+        Zotero.debug("DYNDNS: resolved to #{address}")
+        url = Zotero.Prefs.get('opds.dyndns').trim()
+        Zotero.debug("DYNDNS=#{url}")
+        return if url == ''
+        url = url.replace(/<hostname>/ig, Zotero.Prefs.get('opds.hostname'))
+        url = url.replace(/<ip>/ig, address)
+        Zotero.debug("DYNDNS UPDATE: #{url}")
+        xmlhttp = Components.classes["@mozilla.org/xmlextras/xmlhttprequest;1"].createInstance()
+        xmlhttp.open('GET', url, true)
+        xmlhttp.send(null)
+        return
+    }, null)
 
     Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
       return (socket, transport) ->
@@ -134,6 +165,8 @@ Zotero.OPDS =
   Feed: class
     constructor: (@name, @updated, @url, @kind) ->
       @id = @url
+      @root = Zotero.OPDS.url()
+      @url = @root + @url
       for key in [ "id", "name", "updated", "kind", "url" ]
         throw ("Feed needs #{key}")  unless @[key]
 
@@ -150,9 +183,13 @@ Zotero.OPDS =
       @newnode("updated", @date(@updated))
       @newnode("id", "urn:zotero-opds:#{@id}")
       link = @newnode("link")
+      link.setAttribute("rel", "self")
       link.setAttribute("href", @url)
       link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=#{@kind}")
-      link.setAttribute("rel", "self")
+      link = @newnode("link")
+      link.setAttribute("rel", "start")
+      link.setAttribute("href", "#{@root}/opds")
+      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=#{@kind}")
 
     rjust: (v) ->
       v = "0" + v
@@ -214,7 +251,7 @@ Zotero.OPDS =
         @comment("attachment: #{a.localPath or a.defaultPath}")
         link = @newnode("link")
         link.setAttribute("rel", "http://opds-spec.org/acquisition")
-        link.setAttribute("href", "/opds/item?id=#{group}:#{a.key}")
+        link.setAttribute("href", "#{@root}/opds/item?id=#{group}:#{a.key}")
         link.setAttribute("type", a.attachmentMIMEType)
 
       @pop()
@@ -226,8 +263,9 @@ Zotero.OPDS =
       @newnode("title", title)
       @newnode("id", "zotero-opds:#{url}")
       link = @newnode("link")
-      link.setAttribute("href", url)
-      link.setAttribute("type", "application/atom+xml")
+      link.setAttribute("href", "#{@root}#{url}")
+
+      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=navigation")
       @newnode("updated", @date(updated))
       @pop()
       return
@@ -240,7 +278,7 @@ Zotero.OPDS =
     collection: "with recursive collectiontree (collection) as (values (?) union all select c.collectionID from collections c join collectiontree ct on c.parentCollectionID = ct.collection) select max(dateModified) from collectiontree ct join collectionItems ci on ct.collection = ci.collectionID join items i on ci.itemID = i.itemID"
 
   buildurl: (base, q) ->
-    url = "#{base}?id=#{q.id}"
+    url = "#{@root}#{base}?id=#{q.id}"
     url += "&kind=acquisition" if q.kind == "acquisition"
     return url
 
@@ -295,10 +333,7 @@ Zotero.OPDS =
             updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
             doc.entry(collection.name, "/opds/collection?id=#{url.query.id}:#{collection.key}", updated)
 
-          doc.entry("Items", Zotero.OPDS.buildurl("/opds/group",
-            id: url.query.id
-            kind: "acquisition"
-          ), updated)
+          doc.entry("Items", Zotero.OPDS.buildurl("/opds/group", { id: url.query.id, kind: "acquisition"}), updated)
         sendResponseCallback(200, "application/atom+xml", doc.serialize())
         return
 
@@ -331,7 +366,6 @@ Zotero.OPDS =
 
         sendResponseCallback(200, "application/atom+xml", doc.serialize())
         return
-
 
 # Initialize the utility
 window.addEventListener("load", ((e) ->
