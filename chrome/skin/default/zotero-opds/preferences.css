@@ -1,0 +1,4 @@
+#client-acl listheader { padding-left: 0px; }
+#client-acl listitem { padding-left: 20px; }
+#client-acl listitem.access-allowed { background:url("ic_check_24px.svg") center left no-repeat; }
+#client-acl listitem.access-denied { background:url("ic_block_24px.svg") center left no-repeat; }

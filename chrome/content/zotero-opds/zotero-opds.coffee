@@ -10,12 +10,8 @@ Zotero.OPDS =
 
   # courtesy http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
   TOTP:
-    dec2hex: (s) -> (if s < 15.5 then '0' else '') + Math.round(s).toString(16)
-
-    hex2dec: (s) -> parseInt(s, 16)
-
     # courtesy http://forthescience.org/blog/2010/11/30/base32-encoding-in-javascript/
-    b32encode: (s) ->
+    b32encode: (s, pad) ->
       alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
       parts = []
@@ -44,13 +40,17 @@ Zotero.OPDS =
         else 0
 
       parts.pop() for i in [0...replace]
-      parts.push('=') for i in [0...replace]
+      parts.push('=') for i in [0...replace] if pad
 
       return parts.join('')
 
+    dec2hex: (s) -> (if s < 15.5 then '0' else '') + Math.round(s).toString(16)
+
+    hex2dec: (s) -> parseInt(s, 16)
+
     base32tohex: (base32) ->
       base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-      bits = (leftpad(base32chars.indexOf(c).toString(2), 5, '0') for c in base32.toUpperCase()).join('')
+      bits = (@leftpad(base32chars.indexOf(c).toString(2), 5, '0') for c in base32.toUpperCase()).join('')
       hex = (parseInt(bits.substr(i, 4), 2).toString(16) for i in [0..bits.length] by 4).join('')
       return hex
 
@@ -61,17 +61,15 @@ Zotero.OPDS =
     otp: ->
       secret = Zotero.Prefs.get('opds.secret')
       return if secret == ''
-      return secret
 
-      key = base32tohex(secret)
+      key = @base32tohex(secret)
       epoch = Math.round(new Date().getTime() / 1000.0)
-      time = leftpad(dec2hex(Math.floor(epoch / 30)), 16, '0')
-      hmacObj = new jsSHA(time, 'HEX')
-      hmac = hmacObj.getHMAC(key, 'HEX', 'SHA-1', 'HEX')
+      time = @leftpad(@dec2hex(Math.floor(epoch / 30)), 16, '0')
+      hmac = (new jsSHA(time, 'HEX')).getHMAC(key, 'HEX', 'SHA-1', 'HEX')
       throw(hmac) if hmac == 'KEY MUST BE IN BYTE INCREMENTS'
 
-      offset = hex2dec(hmac.substring(hmac.length - 1))
-      otp = (hex2dec(hmac.substr(offset * 2, 8)) & hex2dec('7fffffff')) + ''
+      offset = @hex2dec(hmac.substring(hmac.length - 1))
+      otp = (@hex2dec(hmac.substr(offset * 2, 8)) & @hex2dec('7fffffff')) + ''
       otp = otp.substr(otp.length - 6, 6)
       return otp
 
@@ -124,11 +122,9 @@ Zotero.OPDS =
 
         Zotero.debug("DYNDNS: resolved to #{address}")
         url = Zotero.Prefs.get('opds.dyndns').trim()
-        Zotero.debug("DYNDNS=#{url}")
         return if url == ''
         url = url.replace(/<hostname>/ig, Zotero.Prefs.get('opds.hostname'))
         url = url.replace(/<ip>/ig, address)
-        Zotero.debug("DYNDNS UPDATE: #{url}")
         xmlhttp = Components.classes["@mozilla.org/xmlextras/xmlhttprequest;1"].createInstance()
         xmlhttp.open('GET', url, true)
         xmlhttp.send(null)
@@ -137,7 +133,15 @@ Zotero.OPDS =
 
     Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
       return (socket, transport) ->
-        Zotero.OPDS.clients[transport.host] or= (prompt("Client #{transport.host} wants to access the Zotero embedded webserver. Enter authentication code to confirm", '') == Zotero.OPDS.TOTP.otp())
+        if !(Zotero.OPDS.clients[transport.host]?)
+          response = prompt("Client #{transport.host} wants to access the Zotero embedded webserver.\nEnter authentication code to confirm", '')
+          if response?
+            challenge = Zotero.OPDS.TOTP.otp()
+            Zotero.debug("TOTP: challenge = #{challenge}, response = #{response}")
+            Zotero.OPDS.clients[transport.host] = true if challenge == response
+          else
+            Zotero.OPDS.clients[transport.host] = false
+
         if Zotero.OPDS.clients[transport.host]
           return original.apply(this, arguments)
         else

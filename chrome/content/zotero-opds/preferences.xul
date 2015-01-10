@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<?xml-stylesheet href="chrome://zotero-opds/skin/overlay.css" type="text/css"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero-opds/skin/preferences.css"?>
 <!DOCTYPE window SYSTEM "chrome://zotero-opds/locale/zotero-opds.dtd">
 
 <overlay id="zotero-opds-preferences"
@@ -11,7 +12,7 @@
             insertafter="zotero-prefpane-advanced"
             label="&zotero.opds.preferences.prefpane.opds;"
             image="chrome://zotero-opds/skin/prefs.png"
-            onpaneload="updatePreferences();"
+            onpaneload="initPreferences();"
             >
       <preferences id="zotero-preferences-cite">
         <preference id="pref-opds-hostname" name="extensions.zotero.opds.hostname" type="string"/>
@@ -42,6 +43,14 @@
             </row>
           </rows>
         </grid>
+        <listbox id="client-acl">
+          <listcols>
+            <listcol flex="1"/>
+          </listcols>
+          <listhead>
+            <listheader label="Clients"/>
+          </listhead>
+        </listbox>
       </vbox>
     </prefpane>
   </prefwindow>
