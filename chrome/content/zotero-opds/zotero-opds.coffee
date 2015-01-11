@@ -6,73 +6,6 @@ Zotero.OPDS =
   parser: Components.classes["@mozilla.org/xmlextras/domparser;1"].createInstance(Components.interfaces.nsIDOMParser)
   # xslt: Components.classes["@mozilla.org/document-transformer;1?type=xslt"].createInstance(Components.interfaces.nsIXSLTProcessor)
 
-  QR: qr.noConflict()
-
-  # courtesy http://blog.tinisles.com/2011/10/google-authenticator-one-time-password-algorithm-in-javascript/
-  TOTP:
-    # courtesy http://forthescience.org/blog/2010/11/30/base32-encoding-in-javascript/
-    b32encode: (s, pad) ->
-      alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-
-      parts = []
-      quanta = Math.floor((s.length / 5))
-      leftover = s.length % 5
-
-      if leftover != 0
-        s += '\x00' for i in [0...5 - leftover]
-        quanta += 1
-
-      for i in [0...quanta]
-        parts.push(alphabet.charAt(s.charCodeAt(i * 5) >> 3))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5) & 0x07) << 2) | (s.charCodeAt(i * 5 + 1) >> 6)))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 1) & 0x3F) >> 1) ))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 1) & 0x01) << 4) | (s.charCodeAt(i * 5 + 2) >> 4)))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 2) & 0x0F) << 1) | (s.charCodeAt(i * 5 + 3) >> 7)))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 3) & 0x7F) >> 2)))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 3) & 0x03) << 3) | (s.charCodeAt(i * 5 + 4) >> 5)))
-        parts.push(alphabet.charAt( ((s.charCodeAt(i * 5 + 4) & 0x1F) )))
-
-      replace = switch leftover
-        when 1 then 6
-        when 2 then 4
-        when 3 then 3
-        when 4 then 1
-        else 0
-
-      parts.pop() for i in [0...replace]
-      parts.push('=') for i in [0...replace] if pad
-
-      return parts.join('')
-
-    dec2hex: (s) -> (if s < 15.5 then '0' else '') + Math.round(s).toString(16)
-
-    hex2dec: (s) -> parseInt(s, 16)
-
-    base32tohex: (base32) ->
-      base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-      bits = (@leftpad(base32chars.indexOf(c).toString(2), 5, '0') for c in base32.toUpperCase()).join('')
-      hex = (parseInt(bits.substr(i, 4), 2).toString(16) for i in [0..bits.length] by 4).join('')
-      return hex
-
-    leftpad: (str, len, pad) ->
-      return str if len > str.length
-      return Array(len + 1 - str.length).join(pad) + str
-
-    otp: ->
-      secret = Zotero.Prefs.get('opds.secret')
-      return if secret == ''
-
-      key = @base32tohex(secret)
-      epoch = Math.round(new Date().getTime() / 1000.0)
-      time = @leftpad(@dec2hex(Math.floor(epoch / 30)), 16, '0')
-      hmac = (new jsSHA(time, 'HEX')).getHMAC(key, 'HEX', 'SHA-1', 'HEX')
-      throw(hmac) if hmac == 'KEY MUST BE IN BYTE INCREMENTS'
-
-      offset = @hex2dec(hmac.substring(hmac.length - 1))
-      otp = (@hex2dec(hmac.substr(offset * 2, 8)) & @hex2dec('7fffffff')) + ''
-      otp = otp.substr(otp.length - 6, 6)
-      return otp
-
   clients:
     "127.0.0.1": true
 
@@ -92,7 +25,8 @@ Zotero.OPDS =
   url: ->
     try
       port = Zotero.Prefs.get('httpServer.port')
-    catch
+    catch err
+      Zotero.OPDS.log("Failed to grab server port: #{err.msg}")
       return
 
     return "http://#{Zotero.Prefs.get('opds.hostname')}:#{port}"
@@ -133,15 +67,7 @@ Zotero.OPDS =
 
     Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
       return (socket, transport) ->
-        if !(Zotero.OPDS.clients[transport.host]?)
-          response = prompt("Client #{transport.host} wants to access the Zotero embedded webserver.\nEnter authentication code to confirm", '')
-          if response?
-            challenge = Zotero.OPDS.TOTP.otp()
-            Zotero.debug("TOTP: challenge = #{challenge}, response = #{response}")
-            Zotero.OPDS.clients[transport.host] = true if challenge == response
-          else
-            Zotero.OPDS.clients[transport.host] = false
-
+        Zotero.OPDS.clients[transport.host] ?= confirm("Client #{transport.host} wants to access the\nZotero embedded webserver.")
         if Zotero.OPDS.clients[transport.host]
           return original.apply(this, arguments)
         else
@@ -158,123 +84,13 @@ Zotero.OPDS =
     Zotero.Server.close()
     Zotero.Server.init()
 
-    for endpoint in Object.keys(Zotero.OPDS.endpoints)
-      url = (if endpoint == "index" then "/opds" else "/opds/#{endpoint}")
+    for own id, endpoint of Zotero.OPDS.endpoints
+      url = (if id == "index" then "/opds" else "/opds/#{id}")
       Zotero.OPDS.log("Registering endpoint #{url}")
       ep = Zotero.Server.Endpoints[url] = ->
+      ep:: = endpoint
 
-      ep:: = Zotero.OPDS.endpoints[endpoint]
     return
-
-  Feed: class
-    constructor: (@name, @updated, @url, @kind) ->
-      @id = @url
-      @root = Zotero.OPDS.url()
-      @url = @root + @url
-      for key in [ "id", "name", "updated", "kind", "url" ]
-        throw ("Feed needs #{key}")  unless @[key]
-
-      @doc = Zotero.OPDS.document.implementation.createDocument(@namespace.atom, "feed", null)
-      @clearstack()
-      @doc.documentElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:dc", @namespace.dc)
-      @doc.documentElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:opds", @namespace.opds)
-      @newnode("title", @name || "Zotero library")
-      @newnode("subtitle", "Your bibliography, served by Zotero-OPDS #{Zotero.OPDS.release}")
-      @push(@newnode("author"))
-      @newnode("name", "zotero")
-      @newnode("uri", "https://github.com/AllThatIsTheCase/zotero-opds")
-      @pop()
-      @newnode("updated", @date(@updated))
-      @newnode("id", "urn:zotero-opds:#{@id}")
-      link = @newnode("link")
-      link.setAttribute("rel", "self")
-      link.setAttribute("href", @url)
-      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=#{@kind}")
-      link = @newnode("link")
-      link.setAttribute("rel", "start")
-      link.setAttribute("href", "#{@root}/opds")
-      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=#{@kind}")
-
-    rjust: (v) ->
-      v = "0" + v
-      return v.slice(v.length - 2, v.length)
-
-    date: (timestamp) ->
-      timestamp = Zotero.Date.sqlToDate(timestamp)  if typeof timestamp == "string"
-      return (timestamp or new Date()).toISOString()
-
-    namespace:
-      dc: "http://purl.org/dc/terms/"
-      opds: "http://opds-spec.org/2010/catalog"
-      atom: "http://www.w3.org/2005/Atom"
-
-    comment: (text) ->
-      @stack[0].appendChild(@doc.createComment(text))
-      return
-
-    newnode: (name, text, namespace) ->
-      node = @doc.createElementNS(namespace or @namespace.atom, name)
-      node.appendChild(Zotero.OPDS.document.createTextNode(text))  if text
-      @stack[0].appendChild(node)
-      return node
-
-    push: (node) ->
-      @stack.unshift(node)
-      return node
-
-    pop: ->
-      return stack[0]  if @stack.length == 1
-      return @stack.shift()
-
-    clearstack: ->
-      @stack = [@doc.documentElement]
-      return
-
-    item: (group, item) ->
-      attachments = []
-      if item.isAttachment()
-        attachments = [item]
-      else
-        attachments = item.getAttachments() or []
-      attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
-      return  if attachments.length == 0
-
-      title = item.getDisplayTitle(true)
-      @comment("item: #{title}, #{Zotero.ItemTypes.getName(item.itemTypeID)}")
-      @push(@newnode("entry"))
-      @newnode("title", title)
-      @newnode("id", "zotero-opds:#{item.key}")
-      @push(@newnode("author"))
-      @newnode("name", item.firstCreator)
-      @pop()
-      @newnode("updated", @date(item.getField("dateModified")))
-      abstr = item.getField("abstract")
-      @newnode("content", abstr)  if abstr and abstr.length != 0
-
-      for a in attachments
-        @comment("attachment: #{a.localPath or a.defaultPath}")
-        link = @newnode("link")
-        link.setAttribute("rel", "http://opds-spec.org/acquisition")
-        link.setAttribute("href", "#{@root}/opds/item?id=#{group}:#{a.key}")
-        link.setAttribute("type", a.attachmentMIMEType)
-
-      @pop()
-      return
-
-    entry: (title, url, updated) ->
-      @comment("entry: #{title}")
-      @push(@newnode("entry"))
-      @newnode("title", title)
-      @newnode("id", "zotero-opds:#{url}")
-      link = @newnode("link")
-      link.setAttribute("href", "#{@root}#{url}")
-
-      link.setAttribute("type", "application/atom+xml;profile=opds-catalog;kind=navigation")
-      @newnode("updated", @date(updated))
-      @pop()
-      return
-
-    serialize: -> Zotero.OPDS.serializer.serializeToString(@doc)
 
   sql:
     index: "select max(dateModified) from items"
@@ -282,8 +98,8 @@ Zotero.OPDS =
     collection: "with recursive collectiontree (collection) as (values (?) union all select c.collectionID from collections c join collectiontree ct on c.parentCollectionID = ct.collection) select max(dateModified) from collectiontree ct join collectionItems ci on ct.collection = ci.collectionID join items i on ci.itemID = i.itemID"
 
   buildurl: (base, q) ->
-    url = "#{@root}#{base}?id=#{q.id}"
-    url += "&kind=acquisition" if q.kind == "acquisition"
+    url = "#{@url()}#{base}?id=#{q.id}"
+    url += "&kind=#{q.kind}" if q.kind
     return url
 
   endpoints:
@@ -291,18 +107,35 @@ Zotero.OPDS =
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.index)
-        doc = new Zotero.OPDS.Feed("Zotero Library", updated, "/opds", "navigation")
 
-        for collection in Zotero.getCollections()
-          updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-          doc.entry(collection.name, "/opds/collection?id=0:#{collection.key}", updated)
+        feed = new Zotero.OPDS.XmlDocument('feed', 'http://www.w3.org/2005/Atom', ->
+          @add('id', '/opds')
+          @add('link', {
+            rel: 'self'
+            href: '/opds'
+            type: 'application/atom+xml;profile=opds-catalog;kind=navigation'
+            })
+          @add('link', {
+            rel: 'start'
+            href: '/opds'
+            type: 'application/atom+xml;profile=opds-catalog;kind=navigation'
+            })
 
-        # don't forget to add saved searches
-        for group in Zotero.Groups.getAll()
-          updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id)
-          doc.entry(group.name, "/opds/group?id=#{group.id}", updated)
+          @add('title', 'Zotero Library')
+          @add('updated', @date(updated))
+          @add('author', ->
+            @add('name', 'Zotero OPDS')
+            @add('uri', 'http://ZotPlus')
+            return)
 
-        sendResponseCallback(200, "application/atom+xml", doc.serialize())
+          for collection in Zotero.getCollections()
+            @collection(collection)
+
+          # TODO: add saved searches
+          for group in Zotero.Groups.getAll()
+            @group(group)
+
+        sendResponseCallback(200, "application/atom+xml", feed.serialize())
         return
 
     item:
@@ -326,8 +159,12 @@ Zotero.OPDS =
         group = Zotero.Groups.getByLibraryID(libraryID)
         collections = group.getCollections()
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, libraryID)
-        doc = new Zotero.OPDS.Feed("Zotero Library Group " + group.name, updated, Zotero.OPDS.buildurl("/opds/group", url.query), url.query.kind or "navigation")
-        if url.query.kind == "acquisition"
+
+        kind = url.query.kind || 'navigation'
+
+        doc = new Zotero.OPDS.Feed("Zotero Library Group '#{group.name}'", updated, Zotero.OPDS.buildurl("/opds/group", url.query), kind)
+
+        if kind == 'acquisition'
           items = (new Zotero.ItemGroup("group", group)).getItems()
           for item in items or []
             doc.item(url.query.id, item)
@@ -337,7 +174,7 @@ Zotero.OPDS =
             updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
             doc.entry(collection.name, "/opds/collection?id=#{url.query.id}:#{collection.key}", updated)
 
-          doc.entry("Items", Zotero.OPDS.buildurl("/opds/group", { id: url.query.id, kind: "acquisition"}), updated)
+          doc.entry('::Items', Zotero.OPDS.buildurl('/opds/group', { id: url.query.id, kind: 'acquisition'}), updated)
         sendResponseCallback(200, "application/atom+xml", doc.serialize())
         return
 
@@ -352,13 +189,15 @@ Zotero.OPDS =
         return sendResponseCallback(500, "text/plain", "Unexpected OPDS collection " + url.query.id)  if not q.group or not q.collection
 
         library = (if q.group == "0" then null else Zotero.Groups.getLibraryIDFromGroupID(q.group))
+        kind = url.query.kind || 'navigation'
 
         collection = Zotero.Collections.getByLibraryAndKey(library, q.collection)
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-        doc = new Zotero.OPDS.Feed("Zotero Library Collection " + collection.name, updated, Zotero.OPDS.buildurl("/opds/collection", url.query), url.query.kind or "navigation")
-        if url.query.kind == "acquisition"
-          items = (new Zotero.ItemGroup("collection", collection)).getItems()
+        doc = new Zotero.OPDS.Feed("Zotero Library Collection '#{collection.name}'", updated, Zotero.OPDS.buildurl("/opds/collection", url.query), kind)
 
+        Zotero.OPDS.log("Collection feed type #{kind}")
+        if kind == 'acquisition'
+          items = (new Zotero.ItemGroup('collection', collection)).getItems()
           for item in items or []
             doc.item(q.group, item)
 
@@ -366,10 +205,88 @@ Zotero.OPDS =
           for collection in collection.getChildCollections() or []
             updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
             doc.entry(collection.name, "/opds/collection?id=#{q.group}:#{collection.key}")
-          doc.entry("Items", Zotero.OPDS.buildurl("/opds/collection", { id: url.query.id, kind: "acquisition"}), updated)
+          doc.entry('::Items', Zotero.OPDS.buildurl('/opds/collection', { id: url.query.id, kind: 'acquisition'}), updated)
 
         sendResponseCallback(200, "application/atom+xml", doc.serialize())
         return
+
+class Zotero.OPDS.XmlNode
+  constructor: (@doc, @root, @namespace) ->
+
+  add: (name, content) ->
+    node = @doc.createElementNS(@namespace, name)
+    @root.appendChild(node)
+
+    switch typeof content
+      when 'function'
+        content.call(new Zotero.OPDS.XmlNode(@doc, node, @namespace))
+
+      when 'string'
+        node.appendChild(@doc.createTextNode(content))
+
+      else # assume node with attributes
+        for own k, v of content
+          if k == ''
+            node.appendChild(@doc.createTextNode(v))
+          else
+            node.setAttribute(k, v)
+
+    return node
+
+  date: (timestamp) ->
+    timestamp = Zotero.Date.sqlToDate(timestamp)  if typeof timestamp == "string"
+    return (timestamp or new Date()).toISOString()
+
+class Zotero.OPDS.XmlDocument extends Zotero.OPDS.XmlNode
+  constructor: (root, @namespace, content) ->
+    super(null, null, @namespace)
+    @doc = Zotero.OPDS.document.implementation.createDocument(@namespace, root, null)
+    @root = @doc.documentElement
+    content.call(@)
+
+  serialize: -> Zotero.OPDS.serializer.serializeToString(@doc)
+
+class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
+  constructor: (content) ->
+    super('feed', 'http://www.w3.org/2005/Atom', content)
+
+  collection: (collection) ->
+    updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
+    @add('entry', ->
+      url = "/opds/collection?id=0:#{collection.key}"
+      @add('title', collection.name)
+      @add('link', {
+        rel: 'subsection'
+        href: url
+        type: 'application/atom+xml;profile=opds-catalog;kind=acquisition'
+        })
+      @add('updated', @date(updated))
+      @add('id', url)
+      @add('content', {
+        type: 'text'
+        '': collection.name
+        })
+      return)
+    return
+
+  group: (group) ->
+    updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id)
+    @add('entry', ->
+      url = "/opds/group?id=#{group.id}"
+      @add('title', group.name)
+      @add('link', {
+        rel: 'subsection'
+        href: url
+        type: 'application/atom+xml;profile=opds-catalog;kind=acquisition'
+        })
+      @add('updated', @date(updated))
+      @add('id', url)
+      @add('content', {
+        type: 'text'
+        '': group.name
+        })
+      return)
+    return
 
 # Initialize the utility
 window.addEventListener("load", ((e) ->

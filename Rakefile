@@ -58,8 +58,6 @@ ZIPFILES = [
   'chrome/content/zotero-opds/zotero-opds.js',
   'chrome/content/zotero-opds/preferences.js',
   'chrome/content/zotero-opds/version.js',
-  'chrome/content/zotero-opds/sha.js',
-  'chrome/content/zotero-opds/qr.js',
   'chrome/locale/en-US/zotero-opds/zotero-opds.dtd',
   'chrome/locale/en-US/zotero-opds/zotero-opds.properties',
   'defaults/preferences/defaults.js',
@@ -116,13 +114,6 @@ rule '.js' => '.coffee' do |t|
     header = header ? JSON.pretty_generate(header) + "\n" : ''
     target.write(header + output)
   }
-end
-
-file 'chrome/content/zotero-opds/sha.js' do |t|
-  ZotPlus::RakeHelper.download('http://caligatio.github.io/jsSHA/sha.js', t.name)
-end
-file 'chrome/content/zotero-opds/qr.js' do |t|
-  ZotPlus::RakeHelper.download('https://raw.githubusercontent.com/neocotic/qr.js/master/qr.min.js', t.name)
 end
 
 task :clean do
