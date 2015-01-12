@@ -108,32 +108,15 @@ Zotero.OPDS =
       init: (url, data, sendResponseCallback) ->
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.index)
 
-        feed = new Zotero.OPDS.XmlDocument('feed', 'http://www.w3.org/2005/Atom', ->
-          @add('id', '/opds')
-          @add('link', {
-            rel: 'self'
-            href: '/opds'
-            type: 'application/atom+xml;profile=opds-catalog;kind=navigation'
-            })
-          @add('link', {
-            rel: 'start'
-            href: '/opds'
-            type: 'application/atom+xml;profile=opds-catalog;kind=navigation'
-            })
-
-          @add('title', 'Zotero Library')
-          @add('updated', @date(updated))
-          @add('author', ->
-            @add('name', 'Zotero OPDS')
-            @add('uri', 'http://ZotPlus')
-            return)
-
+        feed = new Zotero.OPDS.Feed('/opds', 'Zotero Library', updated, ->
           for collection in Zotero.getCollections()
             @collection(collection)
 
-          # TODO: add saved searches
           for group in Zotero.Groups.getAll()
             @group(group)
+
+          # TODO: add saved searches
+          return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
         return
@@ -141,97 +124,69 @@ Zotero.OPDS =
     item:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        q = url.query.id.split(":")
-        q =
-          group: q.shift()
-          item: q.shift()
-
-        return sendResponseCallback(500, "text/plain", "Unexpected OPDS item " + url.query.id)  if not q.group or not q.item
-        library = ((if q.group == "0" then null else Zotero.Groups.getLibraryIDFromGroupID(q.group)))
-        item = Zotero.Items.getByLibraryAndKey(library, q.item)
-        sendResponseCallback(200, item.attachmentMIMEType, Zotero.File.getBinaryContents(item.getFile()))
+        item = Zotero.Items.getByLibraryAndKey(url.query.library, url.query.key)
+        sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', Zotero.File.getBinaryContents(item.getFile()))
         return
 
     group:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        libraryID = Zotero.Groups.getLibraryIDFromGroupID(url.query.id)
-        group = Zotero.Groups.getByLibraryID(libraryID)
-        collections = group.getCollections()
-        updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, libraryID)
+        group = Zotero.Groups.getByLibraryID(url.query.id)
+        updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, url.query.id)
 
-        kind = url.query.kind || 'navigation'
+        feed = new Zotero.OPDS.Feed("/opds/group?id=#{url.query.id}", "Group: #{group.name}", updated, ->
+          for collection in group.getCollections() || []
+            @collection(collection)
 
-        doc = new Zotero.OPDS.Feed("Zotero Library Group '#{group.name}'", updated, Zotero.OPDS.buildurl("/opds/group", url.query), kind)
+          for item in (new Zotero.ItemGroup('group', group)).getItems() || []
+            @item(item)
 
-        if kind == 'acquisition'
-          items = (new Zotero.ItemGroup("group", group)).getItems()
-          for item in items or []
-            doc.item(url.query.id, item)
+          return)
 
-        else
-          for collection in collections or []
-            updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-            doc.entry(collection.name, "/opds/collection?id=#{url.query.id}:#{collection.key}", updated)
-
-          doc.entry('::Items', Zotero.OPDS.buildurl('/opds/group', { id: url.query.id, kind: 'acquisition'}), updated)
-        sendResponseCallback(200, "application/atom+xml", doc.serialize())
+        sendResponseCallback(200, "application/atom+xml", feed.serialize())
         return
 
     collection:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        query = url.query.id.split(":")
-        q = {}
-        q.group = query.shift()
-        q.collection = query.shift()
-
-        return sendResponseCallback(500, "text/plain", "Unexpected OPDS collection " + url.query.id)  if not q.group or not q.collection
-
-        library = (if q.group == "0" then null else Zotero.Groups.getLibraryIDFromGroupID(q.group))
-        kind = url.query.kind || 'navigation'
-
-        collection = Zotero.Collections.getByLibraryAndKey(library, q.collection)
+        collection = Zotero.Collections.getByLibraryAndKey(url.queryy.library, url.query.key)
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-        doc = new Zotero.OPDS.Feed("Zotero Library Collection '#{collection.name}'", updated, Zotero.OPDS.buildurl("/opds/collection", url.query), kind)
 
-        Zotero.OPDS.log("Collection feed type #{kind}")
-        if kind == 'acquisition'
-          items = (new Zotero.ItemGroup('collection', collection)).getItems()
-          for item in items or []
-            doc.item(q.group, item)
-
-        else
+        feed = new Zotero.OPDS.Feed("/opds/collection?library=#{url.query.library}&key=#{url.query.key}", "Collection: #{collection.name}", updated, ->
           for collection in collection.getChildCollections() or []
-            updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-            doc.entry(collection.name, "/opds/collection?id=#{q.group}:#{collection.key}")
-          doc.entry('::Items', Zotero.OPDS.buildurl('/opds/collection', { id: url.query.id, kind: 'acquisition'}), updated)
+            @collection(collection)
 
-        sendResponseCallback(200, "application/atom+xml", doc.serialize())
+          for item in (new Zotero.ItemGroup('collection', collection)).getItems() || []
+            @item(item)
+
+          return)
+
+        sendResponseCallback(200, "application/atom+xml", feed.serialize())
         return
 
 class Zotero.OPDS.XmlNode
   constructor: (@doc, @root, @namespace) ->
 
-  add: (name, content) ->
-    node = @doc.createElementNS(@namespace, name)
-    @root.appendChild(node)
+  add: (what) ->
+    for own name, content of what
+      node = @doc.createElementNS(@namespace, name)
+      @root.appendChild(node)
 
-    switch typeof content
-      when 'function'
-        content.call(new Zotero.OPDS.XmlNode(@doc, node, @namespace))
+      switch typeof content
+        when 'function'
+          content.call(new Zotero.OPDS.XmlNode(@doc, node, @namespace))
 
-      when 'string'
-        node.appendChild(@doc.createTextNode(content))
+        when 'string'
+          node.appendChild(@doc.createTextNode(content))
 
-      else # assume node with attributes
-        for own k, v of content
-          if k == ''
-            node.appendChild(@doc.createTextNode(v))
-          else
-            node.setAttribute(k, v)
+        else # assume node with attributes
+          for own k, v of content
+            if k == ''
+              node.appendChild(@doc.createTextNode(v))
+            else
+              node.setAttribute(k, v)
 
-    return node
+    return
 
   date: (timestamp) ->
     timestamp = Zotero.Date.sqlToDate(timestamp)  if typeof timestamp == "string"
@@ -247,44 +202,72 @@ class Zotero.OPDS.XmlDocument extends Zotero.OPDS.XmlNode
   serialize: -> Zotero.OPDS.serializer.serializeToString(@doc)
 
 class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
-  constructor: (content) ->
-    super('feed', 'http://www.w3.org/2005/Atom', content)
+  constructor: (url, title, updated, content) ->
+    super('feed', 'http://www.w3.org/2005/Atom', ->)
+    @add(id: url)
+    @add(link: { rel: 'self', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=navigation' })
+    @add(link: { rel: 'start', href: '/opds', type: 'application/atom+xml;profile=opds-catalog;kind=navigation' })
+    @add(title: title)
+    @add(updated: @date(updated))
+
+    @add(author: ->
+      @add(name: 'Zotero OPDS')
+      @add(uri: 'http://zotplus.github.io/opds')
+      return)
+    content.call(@)
 
   collection: (collection) ->
     updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
-    @add('entry', ->
-      url = "/opds/collection?id=0:#{collection.key}"
-      @add('title', collection.name)
-      @add('link', {
-        rel: 'subsection'
-        href: url
-        type: 'application/atom+xml;profile=opds-catalog;kind=acquisition'
-        })
-      @add('updated', @date(updated))
-      @add('id', url)
-      @add('content', {
-        type: 'text'
-        '': collection.name
-        })
+    @add(entry: ->
+      url = "/opds/collection?library=#{collection.libraryID || 0}&collection=#{collection.key}"
+      @add(title: collection.name)
+      @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
+      @add(updated: @date(updated))
+      @add(id: url)
+      @add(content: { type: 'text', '': collection.name })
       return)
     return
 
   group: (group) ->
     updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id)
-    @add('entry', ->
-      url = "/opds/group?id=#{group.id}"
-      @add('title', group.name)
-      @add('link', {
-        rel: 'subsection'
-        href: url
-        type: 'application/atom+xml;profile=opds-catalog;kind=acquisition'
-        })
-      @add('updated', @date(updated))
-      @add('id', url)
-      @add('content', {
-        type: 'text'
-        '': group.name
-        })
+    libraryID = Zotero.Groups.getLibraryIDFromGroupID(group.id)
+    @add(entry: ->
+      url = "/opds/group?id=#{libraryID}"
+      @add(title: group.name)
+      @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
+      @add(updated: @date(updated))
+      @add(id: url)
+      @add(content: { type: 'text', '': group.name })
+      return)
+    return
+
+  item: (item) ->
+    attachments = []
+    if item.isAttachment()
+      attachments = [item]
+    else
+      attachments = item.getAttachments() or []
+    attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
+
+    return if attachments.length == 0
+    @add(entry: ->
+      @add(title: item.getDisplayTitle(true))
+      @add(id: "/opds/item/#{item.libraryID || 0}:#{item.key}")
+      @add(author: ->
+        @add(name: item.firstCreator)
+        return)
+      @add(updated: @date(item.getField('dateModified')))
+
+      abstr = item.getField("abstract")
+      @add(summary: {type: 'text', '': abstr}) if abstr && abstr.length != 0
+
+      for attachment in attachments
+        @add(link: {
+          type: attachment.attachmentMIMEType || 'application/pdf'
+          rel: 'http://opds-spec.org/acquisition'
+          href: "/opds/item?library=#{attachment.libraryID || 0}&key=#{attachment.key}"
+          })
+
       return)
     return
 
