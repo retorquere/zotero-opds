@@ -65,22 +65,77 @@ Zotero.OPDS =
         return
     }, null)
 
-    Zotero.Server.SocketListener.onSocketAccepted = ((original) ->
-      return (socket, transport) ->
-        Zotero.OPDS.clients[transport.host] ?= confirm("Client #{transport.host} wants to access the\nZotero embedded webserver.")
-        if Zotero.OPDS.clients[transport.host]
-          return original.apply(this, arguments)
-        else
-          socket.close()
-        return
-      )(Zotero.Server.SocketListener.onSocketAccepted)
-
+    # Enable outside connections
     Zotero.Server.init = ((original) ->
       return (port, bindAllAddr, maxConcurrentConnections) ->
         Zotero.OPDS.log("Zotero server now enabled for non-localhost!")
         return original.apply(this, [port, true, maxConcurrentConnections])
       )(Zotero.Server.init)
 
+    # verify outside connections, and set buffer bigger or the webserver will stall on attachments
+    Zotero.Server.SocketListener.onSocketAccepted = (socket, transport) ->
+      Zotero.OPDS.clients[transport.host] ?= confirm("Client #{transport.host} wants to access the\nZotero embedded webserver.")
+      if !Zotero.OPDS.clients[transport.host]
+        socket.close()
+        return
+
+      # get an input stream
+      iStream = transport.openInputStream(0, 0, 0)
+      oStream = transport.openOutputStream(Components.interfaces.nsITransport.OPEN_BLOCKING,10000000,100000)
+
+      dataListener = new Zotero.Server.DataListener(iStream, oStream)
+      pump = Components.classes["@mozilla.org/network/input-stream-pump;1"].createInstance(Components.interfaces.nsIInputStreamPump)
+      pump.init(iStream, -1, -1, 0, 0, false)
+      pump.asyncRead(dataListener, null)
+      return
+
+    Zotero.MIME.isTextType = ((original) ->
+      return (mimeType) ->
+        return true if mimeType == 'application/atom+xml'
+        return original.apply(this, arguments)
+      )(Zotero.MIME.isTextType)
+
+    # Mark binary response data
+    Zotero.Server.DataListener.prototype._generateResponse = ((original) ->
+      return (status, contentType, body) ->
+        response = original.apply(this, arguments)
+        if Zotero.MIME.isTextType(contentType) || !body || !contentType
+          return response
+        else
+          return {contentType: contentType, response: response}
+      )(Zotero.Server.DataListener.prototype._generateResponse)
+
+    # Unpatched version forces output to UTF-8, reads mark from patched Zotero.Server.DataListener.prototype._generateResponse
+    Zotero.Server.DataListener.prototype._requestFinished = ((original) ->
+      return (response) ->
+        return original.apply(this, arguments) if !response.response
+        Zotero.OPDS.log('Serving binary')
+
+        if @_responseSent
+          Zotero.debug("Request already finished; not sending another response")
+          return
+        @_responseSent = true
+
+        # close input stream
+        @iStream.close()
+
+        # write response
+        #oStream = Components.classes['@mozilla.org/binaryoutputstream;1'].createInstance(Components.interfaces.nsIBinaryOutputStream)
+        #try
+        #  oStream.setOutputStream(@oStream)
+        #  oStream.writeBytes(response.response, response.response.length)
+        #finally
+        #  @oStream.close()
+
+        Zotero.OPDS.log('Serving binary')
+        #response.response = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n" + (new Array(100000).join(' boo! '))
+        @oStream.write(response.response, response.response.length)
+        @oStream.close()
+
+        return
+      )(Zotero.Server.DataListener.prototype._requestFinished)
+
+    # Close & open the server to trigger the server setup
     Zotero.Server.close()
     Zotero.Server.init()
 
@@ -96,11 +151,6 @@ Zotero.OPDS =
     index: "select max(dateModified) from items"
     group: "select max(dateModified) from items where libraryID = ?"
     collection: "with recursive collectiontree (collection) as (values (?) union all select c.collectionID from collections c join collectiontree ct on c.parentCollectionID = ct.collection) select max(dateModified) from collectiontree ct join collectionItems ci on ct.collection = ci.collectionID join items i on ci.itemID = i.itemID"
-
-  buildurl: (base, q) ->
-    url = "#{@url()}#{base}?id=#{q.id}"
-    url += "&kind=#{q.kind}" if q.kind
-    return url
 
   endpoints:
     index:
@@ -125,7 +175,11 @@ Zotero.OPDS =
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
         item = Zotero.Items.getByLibraryAndKey(url.query.library, url.query.key)
-        sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', Zotero.File.getBinaryContents(item.getFile()))
+        Zotero.OPDS.log('Getting binary')
+        body = Zotero.File.getBinaryContents(item.getFile())
+        Zotero.OPDS.log('Got it')
+        sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', body)
+        Zotero.OPDS.log('Sent it')
         return
 
     group:
@@ -149,14 +203,14 @@ Zotero.OPDS =
     collection:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        collection = Zotero.Collections.getByLibraryAndKey(url.queryy.library, url.query.key)
+        collection = Zotero.Collections.getByLibraryAndKey(url.query.library, url.query.key)
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
 
         feed = new Zotero.OPDS.Feed("/opds/collection?library=#{url.query.library}&key=#{url.query.key}", "Collection: #{collection.name}", updated, ->
           for collection in collection.getChildCollections() or []
             @collection(collection)
 
-          for item in (new Zotero.ItemGroup('collection', collection)).getItems() || []
+          for item in collection.getChildItems(false) || []
             @item(item)
 
           return)
@@ -219,7 +273,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
   collection: (collection) ->
     updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
     @add(entry: ->
-      url = "/opds/collection?library=#{collection.libraryID || 0}&collection=#{collection.key}"
+      url = "/opds/collection?library=#{collection.libraryID || 0}&key=#{collection.key}"
       @add(title: collection.name)
       @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
       @add(updated: @date(updated))
@@ -244,9 +298,10 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
   item: (item) ->
     attachments = []
     if item.isAttachment()
-      attachments = [item]
+      attachments = [item.id]
     else
       attachments = item.getAttachments() or []
+      attachments = Zotero.Items.get(attachments) if attachments.length != 0
     attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
 
     return if attachments.length == 0
