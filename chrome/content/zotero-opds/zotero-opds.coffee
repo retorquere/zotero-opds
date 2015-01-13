@@ -9,17 +9,15 @@ Zotero.OPDS =
   clients:
     "127.0.0.1": true
 
-  log: (msg, e) ->
-    msg = JSON.stringify(msg)  unless typeof msg == "string"
-    msg = "[opds] " + msg
-    if e
-      msg += "\nan error occurred: "
-      if e.name
-        msg += e.name + ": " + e.message + " \n(" + e.fileName + ", " + e.lineNumber + ")"
-      else
-        msg += e
-      msg += "\n" + e.stack  if e.stack
-    Zotero.debug(msg)
+  log: (msg...) ->
+    msg = for m in msg
+      switch
+        when (typeof m) in ['string', 'number'] then '' + m
+        when m instanceof Error and m.name then "#{m.name}: #{m.message} \n(#{m.fileName}, #{m.lineNumber})\n#{m.stack}"
+        when m instanceof Error then "#{e}\n#{e.stack}"
+        else JSON.stringify(m)
+
+    Zotero.debug("[better-bibtex] #{msg.join(' ')}")
     return
 
   url: ->
@@ -153,6 +151,19 @@ Zotero.OPDS =
     collection: "with recursive collectiontree (collection) as (values (?) union all select c.collectionID from collections c join collectiontree ct on c.parentCollectionID = ct.collection) select max(dateModified) from collectiontree ct join collectionItems ci on ct.collection = ci.collectionID join items i on ci.itemID = i.itemID"
 
   endpoints:
+    'icon.png':
+      supportedMethods: ["GET"]
+      init: (url, data, sendResponseCallback) ->
+        # don't use Zotero.File.getContentsFromURL as it forces the output to text/plain
+        req = Components.classes["@mozilla.org/xmlextras/xmlhttprequest;1"].createInstance()
+        req.open('GET', "chrome://zotero/skin/#{url.query.name}", false)
+        req.responseType = 'arraybuffer'
+        req.send(null)
+
+        return sendResponseCallback(req.status, 'text/plain', "#{req.status}, #{if req.response then 'got' else 'no'} content") if req.status != 200 || !req.response
+
+        return sendResponseCallback(200, 'image/png', String.fromCharCode.apply(null, new Uint8Array(req.response)))
+
     index:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
@@ -162,10 +173,11 @@ Zotero.OPDS =
           for collection in Zotero.getCollections()
             @collection(collection)
 
-          for group in Zotero.Groups.getAll()
-            @group(group)
+          for search in Zotero.Searches.getAll()
+            @search(search)
 
-          # TODO: add saved searches
+          @group()
+
           return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
@@ -175,27 +187,35 @@ Zotero.OPDS =
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
         item = Zotero.Items.getByLibraryAndKey(url.query.library, url.query.key)
-        Zotero.OPDS.log('Getting binary')
         body = Zotero.File.getBinaryContents(item.getFile())
-        Zotero.OPDS.log('Got it')
         sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', body)
-        Zotero.OPDS.log('Sent it')
         return
 
     group:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        group = Zotero.Groups.getByLibraryID(url.query.id)
-        updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, url.query.id)
+        if url.query.id == ''
+          updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.index)
+          feed = new Zotero.OPDS.Feed("/opds/group?id=#{url.query.id}", 'Group Libraries', updated, ->
+            for group in Zotero.Groups.getAll()
+              @group(group)
+            return)
 
-        feed = new Zotero.OPDS.Feed("/opds/group?id=#{url.query.id}", "Group: #{group.name}", updated, ->
-          for collection in group.getCollections() || []
-            @collection(collection)
+        else
+          group = Zotero.Groups.getByLibraryID(url.query.id)
+          updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, url.query.id)
 
-          for item in (new Zotero.ItemGroup('group', group)).getItems() || []
-            @item(item)
+          feed = new Zotero.OPDS.Feed("/opds/group?id=#{url.query.id}", "Group: #{group.name}", updated, ->
+            for collection in group.getCollections() || []
+              @collection(collection)
 
-          return)
+            for search in Zotero.Searches.getAll(url.query.id)
+              @search(search)
+
+            for item in (new Zotero.ItemGroup('group', group)).getItems() || []
+              @item(item)
+
+            return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
         return
@@ -203,7 +223,7 @@ Zotero.OPDS =
     collection:
       supportedMethods: ["GET"]
       init: (url, data, sendResponseCallback) ->
-        collection = Zotero.Collections.getByLibraryAndKey(url.query.library, url.query.key)
+        collection = Zotero.Collections.getByLibraryAndKey((if url.query.library == '0' then null else url.query.library), url.query.key)
         updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
 
         feed = new Zotero.OPDS.Feed("/opds/collection?library=#{url.query.library}&key=#{url.query.key}", "Collection: #{collection.name}", updated, ->
@@ -213,6 +233,23 @@ Zotero.OPDS =
           for item in collection.getChildItems(false) || []
             @item(item)
 
+          return)
+
+        sendResponseCallback(200, "application/atom+xml", feed.serialize())
+        return
+
+    search:
+      supportedMethods: ["GET"]
+      init: (url, data, sendResponseCallback) ->
+        Zotero.OPDS.log("Search: #{JSON.stringify(url.query.library)}, #{JSON.stringify(url.query.key)}")
+        search = Zotero.Searches.getByLibraryAndKey((if url.query.library == '0' then null else url.query.library), url.query.key)
+        Zotero.OPDS.log('Search:', typeof search)
+
+        feed = new Zotero.OPDS.Feed("/opds/search?library=#{url.query.library}&key=#{url.query.key}", "Search: #{search.name}", null, ->
+          items = search.search() || []
+          if items.length > 0
+            for item in Zotero.Items.get(items)
+              @item(item)
           return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
@@ -262,7 +299,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
     @add(link: { rel: 'self', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=navigation' })
     @add(link: { rel: 'start', href: '/opds', type: 'application/atom+xml;profile=opds-catalog;kind=navigation' })
     @add(title: title)
-    @add(updated: @date(updated))
+    @add(updated: @date(updated)) if updated
 
     @add(author: ->
       @add(name: 'Zotero OPDS')
@@ -270,12 +307,23 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       return)
     content.call(@)
 
+  search: (search) ->
+    @add(entry: ->
+      url = "/opds/search?library=#{search.libraryID || 0}&key=#{search.key}"
+      @add(title: search.name)
+      @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
+      @add(id: url)
+      @add(content: { type: 'text', '': search.name })
+      return)
+    return
+
   collection: (collection) ->
     updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.collection, collection.id) or collection.dateModified
     @add(entry: ->
       url = "/opds/collection?library=#{collection.libraryID || 0}&key=#{collection.key}"
       @add(title: collection.name)
       @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
+      @add(link: { type: 'image/png', href: '/opds/icon.png?name=treesource-collection.png', rel: 'http://opds-spec.org/image' })
       @add(updated: @date(updated))
       @add(id: url)
       @add(content: { type: 'text', '': collection.name })
@@ -283,15 +331,21 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
     return
 
   group: (group) ->
-    updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id)
-    libraryID = Zotero.Groups.getLibraryIDFromGroupID(group.id)
+    if group
+      updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.group, group.id)
+      libraryID = Zotero.Groups.getLibraryIDFromGroupID(group.id)
+      name = group.name
+    else
+      updated = Zotero.DB.valueQuery(Zotero.OPDS.sql.index)
+      libraryID = ''
+      name = 'Group Libraries'
     @add(entry: ->
       url = "/opds/group?id=#{libraryID}"
-      @add(title: group.name)
+      @add(title: name)
       @add(link: { rel: 'subsection', href: url, type: 'application/atom+xml;profile=opds-catalog;kind=acquisition' })
       @add(updated: @date(updated))
       @add(id: url)
-      @add(content: { type: 'text', '': group.name })
+      @add(content: { type: 'text', '': name })
       return)
     return
 
