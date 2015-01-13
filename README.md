@@ -14,8 +14,8 @@ specifically gave it permission.
 # Installation (one-time)
 
 After installation, the plugin will auto-update to newer releases. Install by downloading the [latest
-version](https://zotplus.github.io/opds/zotero-opds-0.0.9.xpi)
-(**0.0.9**).
+version](https://zotplus.github.io/opds/zotero-opds-0.0.10.xpi)
+(**0.0.10**).
 If you are not prompted with a Firefox installation dialog then double-click the
 downloaded xpi; Firefox ought to start and present you with the installation dialog.
 
