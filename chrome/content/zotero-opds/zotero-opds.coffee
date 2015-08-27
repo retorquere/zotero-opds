@@ -87,6 +87,16 @@ Zotero.OPDS =
       pump.asyncRead(dataListener, null)
       return
 
+    Zotero.Server.DataListener::_headerFinished = ((original) ->
+      return ->
+        @header = @header.replace(/^([A-Z]+) \/opds\/\/swift(\/[^ \r\n?]+)(\?[^ \r\n]+)?/, (m, method, path, params) ->
+          params ||= ''
+          params[0] == '&' if params[0] == '?'
+          return "#{method} /swift?#{path}#{params}"
+        )
+        return original.apply(this, arguments)
+      )(Zotero.Server.DataListener::_headerFinished)
+
     Zotero.MIME.isTextType = ((original) ->
       return (mimeType) ->
         return true if mimeType == 'application/atom+xml'
@@ -181,7 +191,6 @@ Zotero.OPDS =
           return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
-        return
 
     item:
       supportedMethods: ["GET"]
@@ -189,7 +198,6 @@ Zotero.OPDS =
         item = Zotero.Items.getByLibraryAndKey(url.query.library, url.query.key)
         body = Zotero.File.getBinaryContents(item.getFile())
         sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', body)
-        return
 
     group:
       supportedMethods: ["GET"]
@@ -218,7 +226,6 @@ Zotero.OPDS =
             return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
-        return
 
     collection:
       supportedMethods: ["GET"]
@@ -236,7 +243,6 @@ Zotero.OPDS =
           return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
-        return
 
     search:
       supportedMethods: ["GET"]
@@ -253,7 +259,10 @@ Zotero.OPDS =
           return)
 
         sendResponseCallback(200, "application/atom+xml", feed.serialize())
-        return
+
+    swift:
+      supportedMethods: ["GET"]
+      init: (url, data, sendResponseCallback) ->
 
 class Zotero.OPDS.XmlNode
   constructor: (@doc, @root, @namespace) ->
