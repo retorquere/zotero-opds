@@ -7,6 +7,7 @@ amo:
   issuer: MOZJWTissuer
   secret: MOZJWTsecret
 xpi: zotero-opds-server.xpi
+changelog: https://github.com/retorquere/zotero-opds
 files:
 - chrome.manifest
 - chrome/content/zotero-opds/include.js

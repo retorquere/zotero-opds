@@ -4,7 +4,7 @@
 	<Description about="urn:mozilla:install-manifest">
 		<em:id>zotero-opds-server@iris-advies.com</em:id>
 		<em:name>Zotero OPDS server</em:name>
-		<em:version>0.0.12</em:version>
+		<em:version>0.0.13</em:version>
     <em:description>Embedded OPDS server @ https://github.com/AllThatIsTheCase/zotero-opds</em:description>
 		<em:creator>Emiliano Heyns</em:creator>
 		<em:updateURL>https://zotplus.github.io/opds/update.rdf</em:updateURL>
