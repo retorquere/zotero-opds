@@ -359,6 +359,8 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       return)
     return
 
+  nsIMIMEService: Components.classes['@mozilla.org/uriloader/external-helper-app-service;1'].getService(Components.interfaces.nsIMIMEService)
+
   item: (item) ->
     attachments = []
     if item.isAttachment()
@@ -383,7 +385,8 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       @add(summary: {type: 'text', '': abstr}) if abstr && abstr.length != 0
 
       for attachment in attachments
-        Zotero.OPDS.log("attachment #{attachment.getFile().path} has type #{attachment.attachmentMIMEType}")
+        Zotero.OPDS.log("attachment #{attachment.getFile().path} has type #{attachment.attachmentMIMEType} / #{Zotero.OPDS.nsIMIMEService.getTypeFromExtension(attachment.getFile().path.replace(/.*\./, ''))}"
+
         @add(link: {
           type: attachment.attachmentMIMEType || 'application/pdf'
           rel: 'http://opds-spec.org/acquisition'
