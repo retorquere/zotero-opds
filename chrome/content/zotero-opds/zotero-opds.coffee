@@ -368,6 +368,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       attachments = Zotero.Items.get(attachments) if attachments.length != 0
     Zotero.OPDS.log("'#{item.getDisplayTitle(true)}' has #{attachments.length} attachments")
     attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
+    Zotero.OPDS.log("'#{item.getDisplayTitle(true)}' has #{attachments.length} supported attachments")
 
     return if attachments.length == 0
     @add(entry: ->
@@ -382,6 +383,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       @add(summary: {type: 'text', '': abstr}) if abstr && abstr.length != 0
 
       for attachment in attachments
+        Zotero.OPDS.log("attachment #{attachment.getFile().path} has type #{attachment.attachmentMIMEType}")
         @add(link: {
           type: attachment.attachmentMIMEType || 'application/pdf'
           rel: 'http://opds-spec.org/acquisition'
