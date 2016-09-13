@@ -1,0 +1,26 @@
+---
+github:
+  user: retorquere
+  token: GITHUB_TOKEN
+  repo: zotero-opds
+amo:
+  issuer: MOZJWTissuer
+  secret: MOZJWTsecret
+xpi: zotero-opds.xpi
+files:
+- chrome.manifest
+- chrome/content/zotero-opds/include.js
+- chrome/content/zotero-opds/overlay.xul
+- chrome/content/zotero-opds/preferences.xul
+- chrome/content/zotero-opds/zotero-opds.js
+- chrome/content/zotero-opds/preferences.js
+- chrome/content/zotero-opds/version.js
+- chrome/locale/en-US/zotero-opds/zotero-opds.dtd
+- chrome/locale/en-US/zotero-opds/zotero-opds.properties
+- defaults/preferences/defaults.js
+- install.rdf
+- chrome/skin/default/zotero-opds/ic_block_24px.svg
+- chrome/skin/default/zotero-opds/ic_check_24px.svg
+- chrome/skin/default/zotero-opds/overlay.css
+- chrome/skin/default/zotero-opds/preferences.css
+- chrome/skin/default/zotero-opds/prefs.png
