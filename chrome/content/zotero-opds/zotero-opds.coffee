@@ -17,7 +17,7 @@ Zotero.OPDS =
         when m instanceof Error then "#{e}\n#{e.stack}"
         else JSON.stringify(m)
 
-    Zotero.debug("[better-bibtex] #{msg.join(' ')}")
+    Zotero.debug("[opds] #{msg.join(' ')}")
     return
 
   url: ->
@@ -237,6 +237,7 @@ Zotero.OPDS =
           for collection in collection.getChildCollections() or []
             @collection(collection)
 
+          Zotero.OPDS.log("collection #{collection.name} has #{(collection.getChildItems(false) || []).length} items")
           for item in collection.getChildItems(false) || []
             @item(item)
 
@@ -365,6 +366,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
     else
       attachments = item.getAttachments() or []
       attachments = Zotero.Items.get(attachments) if attachments.length != 0
+    Zotero.OPDS.log("'#{item.getDisplayTitle(true)}' has #{attachments.length} attachments")
     attachments = (a for a in attachments when a.attachmentMIMEType? != "text/html")
 
     return if attachments.length == 0
