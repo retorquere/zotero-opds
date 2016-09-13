@@ -6,7 +6,7 @@ github:
 amo:
   issuer: MOZJWTissuer
   secret: MOZJWTsecret
-xpi: zotero-opds.xpi
+xpi: zotero-opds-server.xpi
 files:
 - chrome.manifest
 - chrome/content/zotero-opds/include.js
