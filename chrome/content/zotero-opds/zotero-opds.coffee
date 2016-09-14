@@ -397,7 +397,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
         @add(link: {
           type: Zotero.OPDS.contentType(attachment)
           rel: 'http://opds-spec.org/acquisition'
-          href: "/opds/item?library=#{attachment.libraryID || 0}&key=#{attachment.key}"
+          href: "/opds/item?library=#{attachment.libraryID || 0}&key=#{attachment.key}&filename=#{encodeURIComponent(attachment.getFilename())}"
           })
 
       return)
