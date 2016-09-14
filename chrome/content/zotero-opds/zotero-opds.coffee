@@ -4,7 +4,6 @@ Zotero.OPDS =
   document: Components.classes["@mozilla.org/xul/xul-document;1"].getService(Components.interfaces.nsIDOMDocument)
   serializer: Components.classes["@mozilla.org/xmlextras/xmlserializer;1"].createInstance(Components.interfaces.nsIDOMSerializer)
   parser: Components.classes["@mozilla.org/xmlextras/domparser;1"].createInstance(Components.interfaces.nsIDOMParser)
-  MIMEService: Components.classes['@mozilla.org/uriloader/external-helper-app-service;1'].getService(Components.interfaces.nsIMIMEService)
   # xslt: Components.classes["@mozilla.org/document-transformer;1?type=xslt"].createInstance(Components.interfaces.nsIXSLTProcessor)
 
   clients:
@@ -20,6 +19,14 @@ Zotero.OPDS =
 
     Zotero.debug("[opds] #{msg.join(' ')}")
     return
+
+  contentType: (attachment) ->
+    return attachment.attachmentMIMEType if attachment.attachmentMIMEType && attachment.attachmentMIMEType != 'application/octet-stream'
+    ext = attachment.getFilename().replace(/.*\./, '').toLowerCase()
+    return switch ext
+      when 'epub' then 'application/epub+zip'
+      when 'pdf' then 'application/pdf'
+      else null
 
   url: ->
     try
@@ -199,7 +206,7 @@ Zotero.OPDS =
       init: (url, data, sendResponseCallback) ->
         item = Zotero.Items.getByLibraryAndKey(url.query.library, url.query.key)
         body = Zotero.File.getBinaryContents(item.getFile())
-        sendResponseCallback(200, item.attachmentMIMEType || 'application/pdf', body)
+        sendResponseCallback(200, Zotero.OPDS.contentType(item) || 'application/pdf', body)
 
     group:
       supportedMethods: ["GET"]
@@ -369,7 +376,7 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       attachments = item.getAttachments() or []
       attachments = Zotero.Items.get(attachments) if attachments.length != 0
     Zotero.OPDS.log("'#{item.getDisplayTitle(true)}' has #{attachments.length} attachments")
-    attachments = (a for a in attachments when a.attachmentLinkMode != Zotero.Attachments.LINK_MODE_LINKED_URL && a.attachmentMIMEType? != "text/html")
+    attachments = (a for a in attachments when a.attachmentLinkMode != Zotero.Attachments.LINK_MODE_LINKED_URL && a.attachmentMIMEType? != "text/html" && Zotero.OPDS.contentType(a))
     Zotero.OPDS.log("'#{item.getDisplayTitle(true)}' has #{attachments.length} supported attachments")
 
     return if attachments.length == 0
@@ -385,10 +392,10 @@ class Zotero.OPDS.Feed extends Zotero.OPDS.XmlDocument
       @add(summary: {type: 'text', '': abstr}) if abstr && abstr.length != 0
 
       for attachment in attachments
-        Zotero.OPDS.log("attachment #{attachment.getFilename()} has type #{attachment.attachmentMIMEType} / #{Zotero.OPDS.MIMEService.getTypeFromExtension(attachment.getFilename().replace(/.*\./, ''))}")
+        Zotero.OPDS.log("attachment #{attachment.getFilename()} has type #{Zotero.OPDS.contentType(attachment)}")
 
         @add(link: {
-          type: attachment.attachmentMIMEType || 'application/pdf'
+          type: Zotero.OPDS.contentType(attachment)
           rel: 'http://opds-spec.org/acquisition'
           href: "/opds/item?library=#{attachment.libraryID || 0}&key=#{attachment.key}"
           })
