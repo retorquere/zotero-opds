@@ -1,19 +1,19 @@
-import AddonEvents from "./events";
-import AddonPrefs from "./prefs";
-import AddonViews from "./views";
+import AddonEvents from './events'
+import AddonPrefs from './prefs'
+import AddonViews from './views'
 
-const { addonName } = require("../package.json");
+const { addonName } = require('../package.json')
 
 class Addon {
-  public events: AddonEvents;
-  public views: AddonViews;
-  public prefs: AddonPrefs;
+  public events: AddonEvents
+  public views: AddonViews
+  public prefs: AddonPrefs
 
   constructor() {
-    this.events = new AddonEvents(this);
-    this.views = new AddonViews(this);
-    this.prefs = new AddonPrefs(this);
+    this.events = new AddonEvents(this)
+    this.views = new AddonViews(this)
+    this.prefs = new AddonPrefs(this)
   }
 }
 
-export { addonName, Addon };
+export { addonName, Addon }

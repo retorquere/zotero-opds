@@ -1,25 +1,26 @@
-import { Addon, addonName } from "./addon";
-import AddonModule from "./module";
+import { Addon, addonName } from './addon'
+import AddonModule from './module'
 
 class AddonPrefs extends AddonModule {
-  private _window: Window;
+  private $window: Window
   constructor(parent: Addon) {
-    super(parent);
+    super(parent)
   }
-  public initPreferences(_window: Window) {
+
+  public initPreferences($window: Window): void {
     // This function is called when the prefs window is opened
     // See addon/chrome/content/preferences.xul onpaneload
-    this._window = _window;
-    Zotero.debug(`${addonName}: init preferences`);
-    this.updatePrefsUI();
+    this.$window = $window
+    Zotero.debug(`${addonName}: init preferences`)
+    this.updatePrefsUI()
   }
 
   private updatePrefsUI() {
     // You can initialize some UI elements on prefs window
-    // with this._window.document
+    // with this.$window.document
     // Or bind some events to the elements
-    Zotero.debug(`${addonName}: init preferences UI`);
+    Zotero.debug(`${addonName}: init preferences UI`)
   }
 }
 
-export default AddonPrefs;
+export default AddonPrefs

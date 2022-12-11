@@ -1,18 +1,22 @@
 {
-  "name": "zotero-addon-template",
-  "addonName": "Zotero Addon Template",
-  "addonID": "addontemplate@euclpts.com",
-  "addonRef": "addontemplate",
-  "version": "0.0.0",
-  "description": "Zotero Addon Template",
+  "name": "zotero-opds-server",
+  "addonName": "Zotero OPDS server",
+  "addonID": "zotero-opds-server@iris-advies.com",
+  "addonRef": "opds",
+  "version": "0.1.0",
+  "description": "Zotero OPDS server",
   "main": "src/index.js",
   "scripts": {
+    "prebuild": "npm run lint",
     "build": "node build.js",
+    "tsc": "tsc --noEmit",
     "start": "node start.js",
     "stop": "node stop.js",
     "prerestart": "npm run build",
     "restart": "node restart.js",
     "release": "release-it",
+    "eslint": "eslint . --ext .ts --cache --cache-location .eslintcache/",
+    "lint": "parallel --ungroup ::: 'npm run eslint' 'npm run tsc'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -24,16 +28,21 @@
   "bugs": {
     "url": "https://github.com/windingwind/zotero-addon-template/issues"
   },
-  "homepage": "https://github.com/windingwind/zotero-addon-template#readme",
-  "releasepage": "https://github.com/windingwind/zotero-addon-template/releases/latest/download/zotero-addon-template.xpi",
-  "updaterdf": "https://raw.githubusercontent.com/windingwind/zotero-addon-template/master/update.rdf",
+  "homepage": "https://github.com/retorquere/zotero-opds#readme",
+  "releasepage": "https://github.com/retorquere/zotero-opds/releases/latest/download/zotero-opds-server.xpi",
+  "updaterdf": "https://raw.githubusercontent.com/retorquere/zotero-opds/master/update.rdf",
   "dependencies": {
-    "compressing": "^1.5.1",
-    "esbuild": "^0.15.16",
-    "replace-in-file": "^6.3.2"
+    "compressing": "^1.6.2",
+    "esbuild": "^0.16.4",
+    "replace-in-file": "^6.3.5"
   },
   "devDependencies": {
-    "release-it": "^15.5.0",
-    "zotero-types": "^0.0.6"
+    "@types/node": "^18.11.13",
+    "@typescript-eslint/eslint-plugin": "^5.46.0",
+    "eslint": "^8.29.0",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-prefer-arrow": "^1.2.3",
+    "release-it": "^15.5.1",
+    "zotero-types": "^0.0.8"
   }
 }
